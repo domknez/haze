@@ -57,6 +57,8 @@ pub struct Prefs {
     pub source: Option<String>,
     /// The channel watched last (its key in that source).
     pub channel: Option<String>,
+    /// The channel group picked last.
+    pub group: Option<String>,
     /// AirPlay speaker (by name) to play on; None for this computer.
     pub output: Option<String>,
     pub volume: f32,
@@ -80,6 +82,7 @@ impl Prefs {
             theme: get("theme").and_then(Appearance::from_key).unwrap_or(Appearance::System),
             source: get("source").map(str::to_string),
             channel: get("channel").map(str::to_string),
+            group: get("group").map(str::to_string),
             output: get("output").map(str::to_string),
             volume: get("volume").and_then(|v| v.parse::<f32>().ok()).map_or(0.8, |v| v.clamp(0.0, 1.0)),
             muted: get("muted") == Some("true"),
@@ -105,8 +108,9 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 6] {
+    fn values(&self) -> [(&'static str, String); 7] {
         [
+            ("group", self.group.clone().unwrap_or_default()),
             ("theme", self.theme.key().into()),
             ("source", self.source.clone().unwrap_or_default()),
             ("channel", self.channel.clone().unwrap_or_default()),
@@ -137,7 +141,7 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "channel=42\nmuted=true\noutput=Kitchen\nsource=a1b2\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\nsource=a1b2\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {

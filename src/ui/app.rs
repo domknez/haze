@@ -64,7 +64,6 @@ impl Playing {
 pub enum Popup {
     Outputs,
     Sources,
-    Groups,
     AudioTracks,
     Settings,
 }
@@ -88,6 +87,8 @@ pub enum Act {
     ToggleMute,
     ToggleFullscreen,
     ToggleRail,
+    /// Show or hide the column of groups.
+    ToggleGroups,
     Theme(Appearance),
     AddSource,
     EditSource(usize),
@@ -118,6 +119,13 @@ pub struct App {
     pub movie_group: Option<String>,
     pub search: String,
     pub rail_open: bool,
+    /// The column of groups beside the channels.
+    pub groups_open: bool,
+    /// Narrows the column of groups.
+    pub group_filter: String,
+    /// Each group and how many channels (and movies) it has, counted once per catalog.
+    pub group_counts: Vec<(String, usize)>,
+    pub movie_group_counts: Vec<(String, usize)>,
     pub popup: Option<Popup>,
     pub form: Option<SourceForm>,
     pub toast: Option<(String, Instant)>,
@@ -188,6 +196,10 @@ impl App {
             movie_group: None,
             search: String::new(),
             rail_open: true,
+            groups_open: true,
+            group_filter: String::new(),
+            group_counts: Vec::new(),
+            movie_group_counts: Vec::new(),
             popup: None,
             form: None,
             toast: None,
@@ -252,9 +264,25 @@ impl App {
         }
     }
 
-    /// The catalog came in: load its guide, resume the last channel.
+    /// The catalog came in: count its groups, load its guide, resume the last channel.
     fn catalog_arrived(&mut self, ctx: &egui::Context) {
         let Some(c) = self.catalog.ready() else { return };
+        let count = |groups: &[String], of: &mut dyn Iterator<Item = &String>| {
+            let mut n: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            for g in of {
+                *n.entry(g.as_str()).or_default() += 1;
+            }
+            groups.iter().map(|g| (g.clone(), n.get(g.as_str()).copied().unwrap_or(0))).collect::<Vec<_>>()
+        };
+        self.group_counts = count(&c.groups, &mut c.channels.iter().map(|ch| &ch.group));
+        self.movie_group_counts = count(&c.movie_groups, &mut c.movies.iter().map(|m| &m.group));
+        // The group picked last time, if this source still has it.
+        if let Some(g) = &self.prefs.group
+            && c.groups.contains(g)
+        {
+            self.group = Some(g.clone());
+        }
+        let c = self.catalog.ready().expect("catalog");
         if let Some(url) = c.epg_url.clone() {
             let channels = c.channels.clone();
             self.guide = Load::start(ctx, move || library::fetch_guide(&url, &channels));
@@ -609,10 +637,11 @@ impl App {
                 if self.tab == Tab::Movies {
                     self.movie_group = g;
                 } else {
+                    self.prefs.update(|p| p.group = g.clone());
                     self.group = g;
                 }
-                self.popup = None;
             }
+            Act::ToggleGroups => self.groups_open = !self.groups_open,
             Act::SwitchSource(i) => {
                 self.popup = None;
                 if self.active != Some(i) {

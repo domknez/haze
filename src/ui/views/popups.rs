@@ -3,7 +3,7 @@
 
 use crate::output::Output;
 use crate::settings::Appearance;
-use crate::ui::app::{Act, App, Popup, Tab};
+use crate::ui::app::{Act, App, Popup};
 use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, typography};
 use crate::ui::widgets;
@@ -23,10 +23,8 @@ impl App {
         // Below the button, kept on screen; above it when the button is low down.
         let below = anchor.center().y < screen.center().y;
         let x = (anchor.right() - MENU_WIDTH).clamp(screen.left() + 8.0, screen.right() - MENU_WIDTH - 8.0);
-        let x = if popup == Popup::Groups { anchor.left() } else { x };
         let (pivot, pos) =
             if below { (Align2::LEFT_TOP, pos2(x, anchor.bottom() + 8.0)) } else { (Align2::LEFT_BOTTOM, pos2(x, anchor.top() - 8.0)) };
-        let max_h = if below { screen.bottom() - pos.y - 16.0 } else { pos.y - screen.top() - 16.0 };
         let resp = egui::Area::new(egui::Id::unique(("popup", popup as u8)))
             .order(egui::Order::Foreground)
             .pivot(pivot)
@@ -37,7 +35,6 @@ impl App {
                     match popup {
                         Popup::Outputs => self.outputs_menu(ui, acts),
                         Popup::Sources => self.sources_menu(ui, acts),
-                        Popup::Groups => self.groups_menu(ui, max_h.max(160.0), acts),
                         Popup::AudioTracks => self.tracks_menu(ui, acts),
                         Popup::Settings => self.settings_menu(ui, acts),
                     }
@@ -136,34 +133,6 @@ impl App {
         }
     }
 
-    fn groups_menu(&mut self, ui: &mut egui::Ui, max_h: f32, acts: &mut Vec<Act>) {
-        let Some(catalog) = self.catalog.ready() else { return };
-        let movies = self.tab == Tab::Movies;
-        let (groups, current) = if movies { (&catalog.movie_groups, &self.movie_group) } else { (&catalog.groups, &self.group) };
-        let count = |g: &str| {
-            if movies {
-                catalog.movies.iter().filter(|m| m.group == g).count()
-            } else {
-                catalog.channels.iter().filter(|c| c.group == g).count()
-            }
-        };
-        let total = if movies { catalog.movies.len() } else { catalog.channels.len() };
-        let mut chosen = None;
-        egui::ScrollArea::vertical().max_height(max_h.min(520.0)).show(ui, |ui| {
-            if count_row(ui, if movies { "All movies" } else { "All channels" }, total, current.is_none()).clicked() {
-                chosen = Some(None);
-            }
-            for g in groups {
-                if count_row(ui, g, count(g), current.as_ref() == Some(g)).clicked() {
-                    chosen = Some(Some(g.clone()));
-                }
-            }
-        });
-        if let Some(g) = chosen {
-            acts.push(Act::Group(g));
-        }
-    }
-
     fn tracks_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let Some(player) = &self.player else { return };
         let info = player.info();
@@ -241,17 +210,5 @@ fn menu_row(ui: &mut egui::Ui, icon: Icon, title: &str, sub: Option<&str>, on: b
     if on {
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(12.0, 12.0)), Icon::Check, p.accent);
     }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-fn count_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool) -> egui::Response {
-    let p = colors();
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
-    if on || resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(8), if on { p.hl_strong } else { p.hl });
-    }
-    let t = widgets::ellipsize(ui, title, typography::small_strong(), if on { p.text } else { p.dim }, r.width() - 64.0);
-    ui.painter().galley(pos2(r.left() + 10.0, r.center().y - t.size().y / 2.0), t, p.text);
-    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, count.to_string(), typography::meta(), p.faint);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

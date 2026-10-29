@@ -92,6 +92,9 @@ pub mod metrics {
     /// Room for the macOS traffic lights left of the top bar.
     pub const LIGHTS: f32 = if cfg!(target_os = "macos") { 76.0 } else { 0.0 };
     pub const RAIL_WIDTH: f32 = 320.0;
+    /// The column of groups beside the channels.
+    pub const GROUPS_WIDTH: f32 = 220.0;
+    pub const GROUP_ROW: f32 = 32.0;
     pub const BOTTOM: f32 = 164.0;
     pub const CHANNEL_ROW: f32 = 54.0;
     pub const LOGO: f32 = 38.0;

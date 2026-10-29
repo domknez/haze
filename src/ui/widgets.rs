@@ -160,6 +160,11 @@ pub fn field(ui: &mut Ui, text: &mut String, hint: &str, password: bool, width: 
 
 /// The search field: a magnifier, the text, and a cross to clear it.
 pub fn search_field(ui: &mut Ui, text: &mut String, width: f32) -> Response {
+    filter_field(ui, text, "Search", width)
+}
+
+/// A search-style field with its own hint.
+pub fn filter_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
     let p = colors();
     let frame = egui::Frame::new()
         .fill(p.hl)
@@ -167,14 +172,15 @@ pub fn search_field(ui: &mut Ui, text: &mut String, width: f32) -> Response {
         .inner_margin(egui::Margin::symmetric(10, 7));
     frame
         .show(ui, |ui| {
+            ui.set_width(width - 20.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 let (r, _) = ui.allocate_exact_size(vec2(16.0, 22.0), Sense::hover());
                 icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), Icon::Search, p.faint);
                 let edit = ui.add_sized(
-                    [width - 70.0, 22.0],
+                    [width - if text.is_empty() { 48.0 } else { 76.0 }, 22.0],
                     egui::TextEdit::singleline(text)
-                        .hint_text(egui::RichText::new("Search").color(p.faint))
+                        .hint_text(egui::RichText::new(hint).color(p.faint))
                         .frame(egui::Frame::NONE)
                         .font(typography::body())
                         .text_color(p.text),

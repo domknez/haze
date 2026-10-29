@@ -105,7 +105,7 @@ impl App {
     fn idle_backdrop(&self, ui: &egui::Ui, area: Rect) {
         let p = colors();
         let painter = ui.painter();
-        let c = area.center() + vec2(if self.rail_open { metrics::RAIL_WIDTH / 2.0 } else { 0.0 }, -10.0);
+        let c = area.center() + vec2(if self.rail_open { self.rail_width() / 2.0 } else { 0.0 }, -10.0);
         glow(painter, c, area.width().max(area.height()) * 0.45, p.accent.gamma_multiply(0.16));
         painter.text(c, Align2::CENTER_BOTTOM, "haze_", egui::FontId::new(44.0, typography::extrabold()), p.text);
         let hint = match &self.catalog {
