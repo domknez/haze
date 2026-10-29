@@ -18,6 +18,7 @@ use crate::output::Output;
 use crate::output::airplay::Discovery;
 use crate::settings::{Appearance, Prefs};
 use eframe::egui::{self, Key, Modifiers, ViewportCommand};
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -107,6 +108,8 @@ pub struct App {
     /// Presses on the AirPlay speaker's buttons.
     remote: Option<(crate::output::airplay::dacp::Server, std::sync::mpsc::Receiver<crate::output::airplay::dacp::Remote>)>,
     now_playing: Option<super::now_playing::NowPlaying>,
+    /// Playlist sources that turned out to be Xtream logins while loading.
+    upgrades: (Sender<library::Upgrade>, Receiver<library::Upgrade>),
 }
 
 impl App {
@@ -159,6 +162,7 @@ impl App {
             applied_dark: None,
             remote,
             now_playing: super::now_playing::NowPlaying::start(cc),
+            upgrades: std::sync::mpsc::channel(),
         };
         if let Some(i) = active {
             app.switch_source(ctx, i, None);
@@ -201,7 +205,16 @@ impl App {
                 self.catalog = Load::Ready(c);
                 self.catalog_arrived(ctx);
             }
-            None => self.catalog = Load::start(ctx, move || library::fetch(&source)),
+            None => {
+                let upgrades = self.upgrades.0.clone();
+                self.catalog = Load::start(ctx, move || {
+                    let (catalog, upgrade) = library::fetch_upgrading(&source)?;
+                    if let Some(u) = upgrade {
+                        let _ = upgrades.send(u);
+                    }
+                    Ok(catalog)
+                });
+            }
         }
     }
 
@@ -374,6 +387,27 @@ impl App {
 
     /// Take what the background loads brought.
     fn poll_loads(&mut self, ctx: &egui::Context) {
+        // Before the catalog it came with: the source is a login by then.
+        while let Ok((source, password)) = self.upgrades.1.try_recv() {
+            let Some(i) = self.sources.iter().position(|s| s.id == source.id) else { continue };
+            log_info!("{}: signing in to the panel's API in place of its playlist link", source.name);
+            crate::credentials::save(&source.id, &password);
+            // Channels are known by their stream id now, not their link.
+            self.marks.rekey(&source.id, crate::iptv::xtream::stream_id);
+            self.marks_serial += 1;
+            if self.source().is_some_and(|s| s.id == source.id)
+                && let Some(key) = self.resume.as_deref().and_then(crate::iptv::xtream::stream_id)
+            {
+                self.resume = Some(key);
+            }
+            let channel = self.prefs.channel.as_deref().and_then(crate::iptv::xtream::stream_id);
+            if channel.is_some() && self.prefs.source.as_ref() == Some(&source.id) {
+                self.prefs.update(|p| p.channel = channel);
+            }
+            self.show_toast(&format!("{} now signs in to your provider: posters, plots and seasons", source.name));
+            self.sources[i] = source;
+            library::save_sources(&self.sources);
+        }
         if self.catalog.poll() {
             if let Load::Failed(e) = &self.catalog {
                 log_warn!("catalog: {e}");

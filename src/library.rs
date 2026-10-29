@@ -50,6 +50,16 @@ impl Source {
         }
     }
 
+    /// The same source as an Xtream Codes login, when it's the playlist link of an
+    /// Xtream panel (`…/get.php?username=…&password=…`): the panel's API gives posters,
+    /// plots and seasons too, and the password can go to the keychain.
+    pub fn as_xtream(&self) -> Option<(Source, xtream::Login)> {
+        let Kind::Playlist { location, .. } = &self.kind else { return None };
+        let login = xtream::Login::from_playlist_link(location)?;
+        let kind = Kind::Xtream { server: login.server.clone(), user: login.user.clone() };
+        Some((Source { kind, shelves: BTreeMap::new(), ..self.clone() }, login))
+    }
+
     fn to_json(&self) -> Value {
         let mut v = match &self.kind {
             Kind::Playlist { location, epg } => {
@@ -131,16 +141,41 @@ pub fn fetch(source: &Source) -> Result<Catalog, String> {
         }
         Kind::Xtream { .. } => source.login().expect("xtream login").catalog().map_err(|e| e.to_string())?,
     };
+    log_catalog(&source.name, &catalog, started);
+    Ok(catalog)
+}
+
+/// A source signed in to the Xtream panel its playlist link comes from, with the
+/// login's password: keep both in place of the link.
+pub type Upgrade = (Source, String);
+
+/// What a source offers, from the panel's API in place of its playlist link when
+/// the source is one and the API answers (see [`Source::as_xtream`]); the source
+/// as a login then comes too. A panel that keeps its API closed still gives the
+/// playlist.
+pub fn fetch_upgrading(source: &Source) -> Result<(Catalog, Option<Upgrade>), String> {
+    if let Some((login_source, login)) = source.as_xtream() {
+        let started = std::time::Instant::now();
+        match login.catalog() {
+            Ok(catalog) => {
+                log_catalog(&source.name, &catalog, started);
+                return Ok((catalog, Some((login_source, login.password))));
+            }
+            Err(e) => log_warn!("{}: the panel's API didn't answer ({e}); reading the playlist", source.name),
+        }
+    }
+    Ok((fetch(source)?, None))
+}
+
+fn log_catalog(name: &str, catalog: &Catalog, started: std::time::Instant) {
     log_info!(
-        "{}: {} channels in {} groups, {} movies, {} series ({:.1}s)",
-        source.name,
+        "{name}: {} channels in {} groups, {} movies, {} series ({:.1}s)",
         catalog.channels.len(),
         catalog.groups.len(),
         catalog.movies.len(),
         catalog.series.len(),
         started.elapsed().as_secs_f32()
     );
-    Ok(catalog)
 }
 
 /// The guide for `channels`.
@@ -285,6 +320,18 @@ impl Marks {
         self.recent.iter().filter(move |(s, _)| s == source).map(|(_, k)| k.as_str())
     }
 
+    /// Give a source's marks new keys (the ones `rekey` has one for).
+    pub fn rekey(&mut self, source: &str, rekey: impl Fn(&str) -> Option<String>) {
+        for (s, k) in self.favorites.iter_mut().chain(self.recent.iter_mut()) {
+            if s == source
+                && let Some(new) = rekey(k)
+            {
+                *k = new;
+            }
+        }
+        self.save();
+    }
+
     pub fn forget_source(&mut self, source: &str) {
         self.favorites.retain(|(s, _)| s != source);
         self.recent.retain(|(s, _)| s != source);
@@ -310,6 +357,33 @@ mod tests {
             user_agent: None,
             referrer: None,
         }
+    }
+
+    #[test]
+    fn an_xtream_playlist_link_becomes_a_login() {
+        let link = |location: &str| Source {
+            id: "a".into(),
+            name: "Home".into(),
+            kind: Kind::Playlist { location: location.into(), epg: None },
+            shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]),
+        };
+        let (source, login) = link("http://line.tv:8080/get.php?username=me&password=pw&type=m3u_plus").as_xtream().unwrap();
+        assert_eq!(source.kind, Kind::Xtream { server: "http://line.tv:8080".into(), user: "me".into() });
+        assert_eq!((source.id.as_str(), source.name.as_str(), source.shelves.len()), ("a", "Home", 0));
+        assert_eq!(login.password, "pw");
+        assert_eq!(link("http://cdn.tv/list.m3u").as_xtream(), None);
+    }
+
+    #[test]
+    fn marks_follow_new_keys() {
+        let mut m = Marks::default();
+        m.toggle_favorite("a", "http://x/me/pw/7");
+        m.watched("a", "http://x/me/pw/7");
+        m.watched("b", "http://x/me/pw/7");
+        m.rekey("a", xtream::stream_id);
+        assert_eq!(m.favorites("a").collect::<Vec<_>>(), ["7"]);
+        assert_eq!(m.recent("a").collect::<Vec<_>>(), ["7"]);
+        assert_eq!(m.recent("b").collect::<Vec<_>>(), ["http://x/me/pw/7"]);
     }
 
     #[test]

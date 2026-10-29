@@ -27,7 +27,7 @@ Add as many as you like and switch between them from the top bar. Each is checke
 
 | | |
 |---|---|
-| **M3U link** | a playlist URL (`.m3u` / `.m3u8`, `m3u_plus` links from providers), with the guide it names (`url-tvg`) or one you give |
+| **M3U link** | a playlist URL (`.m3u` / `.m3u8`), with the guide it names (`url-tvg`) or one you give. An Xtream panel's link (`…/get.php?username=…&password=…`) signs in to the panel instead, for posters, ratings, plots and seasons, and its password moves to the keychain |
 | **M3U file** | a playlist on disk — or drop the file on the window |
 | **Xtream Codes** | server, user name and password: live channels, the guide, the archive, movies and series from one login; account status and expiry in the source menu |
 

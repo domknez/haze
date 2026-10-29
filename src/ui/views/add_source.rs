@@ -91,11 +91,8 @@ impl SourceForm {
         if !matches!(self.check, Load::Ready(_)) {
             return None;
         }
-        let Load::Ready((source, catalog)) = std::mem::take(&mut self.check) else { return None };
-        if let Kind::Xtream { .. } = source.kind {
-            credentials::save(&source.id, &self.password);
-        }
-        Some((source, catalog))
+        let Load::Ready(checked) = std::mem::take(&mut self.check) else { return None };
+        Some(checked)
     }
 
     fn ready(&self) -> bool {
@@ -122,14 +119,19 @@ impl SourceForm {
         };
         let source = Source { id: self.editing.clone().unwrap_or_else(library::new_id), name, kind, shelves: self.shelves.clone() };
         let password = self.password.clone();
-        self.check = Load::start(ctx, move || {
-            let catalog = match &source.kind {
-                Kind::Xtream { server, user } => {
-                    crate::iptv::xtream::Login::new(server, user, &password).catalog().map_err(|e| e.to_string())?
+        self.check = Load::start(ctx, move || match &source.kind {
+            Kind::Xtream { server, user } => {
+                let catalog = crate::iptv::xtream::Login::new(server, user, &password).catalog().map_err(|e| e.to_string())?;
+                credentials::save(&source.id, &password);
+                Ok((source, catalog))
+            }
+            Kind::Playlist { .. } => match library::fetch_upgrading(&source)? {
+                (catalog, Some((login, password))) => {
+                    credentials::save(&login.id, &password);
+                    Ok((login, catalog))
                 }
-                Kind::Playlist { .. } => library::fetch(&source)?,
-            };
-            Ok((source, catalog))
+                (catalog, None) => Ok((source, catalog)),
+            },
         });
     }
 
@@ -235,6 +237,13 @@ impl SourceForm {
             Mode::Link => {
                 label(ui, "Playlist URL (.m3u / .m3u8)");
                 widgets::field(ui, &mut self.url, "https://…", false, WIDTH);
+                if crate::iptv::xtream::Login::from_playlist_link(&self.url).is_some() {
+                    ui.label(
+                        egui::RichText::new("An Xtream Codes link: haze signs in with it, for posters, plots and seasons too.")
+                            .font(typography::secondary())
+                            .color(colors().faint),
+                    );
+                }
                 ui.add_space(6.0);
                 label(ui, "Guide (XMLTV) — optional, otherwise the one the playlist names");
                 widgets::field(ui, &mut self.epg, "https://…/epg.xml.gz", false, WIDTH);
@@ -247,8 +256,11 @@ impl SourceForm {
                 widgets::field(ui, &mut self.epg, "https://…/epg.xml.gz", false, WIDTH);
             }
             Mode::Xtream => {
-                label(ui, "Server");
+                label(ui, "Server — or paste the playlist link the provider gave you");
                 widgets::field(ui, &mut self.server, "http://line.provider.tv:8080", false, WIDTH);
+                if let Some(login) = crate::iptv::xtream::Login::from_playlist_link(&self.server) {
+                    (self.server, self.user, self.password) = (login.server, login.user, login.password);
+                }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let half = (WIDTH - 10.0) / 2.0;
@@ -275,6 +287,9 @@ impl SourceForm {
 
 fn default_name(kind: &Kind) -> String {
     match kind {
+        Kind::Playlist { location, .. } if let Some(login) = crate::iptv::xtream::Login::from_playlist_link(location) => {
+            default_name(&Kind::Xtream { server: login.server, user: login.user })
+        }
         Kind::Playlist { location, .. } => {
             let tail = location.trim_end_matches('/').rsplit('/').next().unwrap_or(location);
             let stem = tail.split(['?', '.']).next().unwrap_or(tail);
@@ -294,7 +309,7 @@ mod tests {
     #[test]
     fn names_sources_after_where_they_come_from() {
         assert_eq!(default_name(&Kind::Playlist { location: "https://x.tv/lists/hrvatska.m3u8?t=1".into(), epg: None }), "hrvatska");
-        assert_eq!(default_name(&Kind::Playlist { location: "https://x.tv/get.php?username=a".into(), epg: None }), "get");
+        assert_eq!(default_name(&Kind::Playlist { location: "https://x.tv/get.php?username=a&password=b".into(), epg: None }), "x.tv");
         assert_eq!(default_name(&Kind::Xtream { server: "http://line.provider.tv:8080".into(), user: "me".into() }), "line.provider.tv");
     }
 }

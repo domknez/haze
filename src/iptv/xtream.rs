@@ -2,7 +2,7 @@
 //! playlist link. The `player_api.php` endpoint lists categories, channels and the
 //! video library; streams, the guide and the archive have URLs of their own.
 
-use super::http::{self, Error, encode};
+use super::http::{self, Error, decode, encode};
 use super::model::{Account, Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series};
 use serde_json::Value;
 
@@ -27,6 +27,19 @@ impl Login {
             }
         }
         Login { server, user: user.trim().to_string(), password: password.to_string() }
+    }
+
+    /// The login in an Xtream panel's playlist link
+    /// (`http://server/get.php?username=…&password=…&type=m3u_plus`).
+    pub fn from_playlist_link(link: &str) -> Option<Login> {
+        let (path, query) = link.trim().split_once('?')?;
+        if !path.ends_with("/get.php") {
+            return None;
+        }
+        let param = |name: &str| {
+            query.split('&').filter_map(|kv| kv.split_once('=')).find(|(k, _)| *k == name).map(|(_, v)| decode(v)).filter(|v| !v.is_empty())
+        };
+        Some(Login::new(path, &param("username")?, &param("password")?))
     }
 
     fn api(&self, action: Option<&str>) -> String {
@@ -260,6 +273,14 @@ pub fn year_in(name: &str) -> Option<u32> {
     (1900..2100).contains(&y).then_some(y)
 }
 
+/// The stream id at the end of an Xtream stream link (`…/user/pass/123.ts` → `123`),
+/// which is what a channel's key is when its source signs in.
+pub fn stream_id(url: &str) -> Option<String> {
+    let last = url.split('?').next()?.rsplit('/').next()?;
+    let id = last.split('.').next()?;
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +295,21 @@ mod tests {
         assert_eq!(login().server, "http://line.example.tv:8080");
         assert_eq!(Login::new("https://x.tv/get.php?username=a&password=b&type=m3u", "a", "b").server, "https://x.tv");
         assert_eq!(Login::new("http://x.tv/player_api.php", "a", "b").server, "http://x.tv");
+    }
+
+    #[test]
+    fn reads_the_login_in_a_playlist_link() {
+        let l = Login::from_playlist_link("http://line.tv:8080/get.php?username=me&password=p%40ss+w&type=m3u_plus&output=ts").unwrap();
+        assert_eq!((l.server.as_str(), l.user.as_str(), l.password.as_str()), ("http://line.tv:8080", "me", "p@ss w"));
+        assert_eq!(Login::from_playlist_link("http://cdn.tv/list.m3u?username=me&password=x"), None);
+        assert_eq!(Login::from_playlist_link("http://line.tv/get.php?username=me"), None);
+    }
+
+    #[test]
+    fn stream_ids_from_links() {
+        assert_eq!(stream_id("http://line.tv:8080/me/pw/123").as_deref(), Some("123"));
+        assert_eq!(stream_id("http://line.tv/live/me/pw/45.m3u8").as_deref(), Some("45"));
+        assert_eq!(stream_id("http://cdn.tv/hrt1.ts"), None);
     }
 
     #[test]
