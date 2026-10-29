@@ -22,6 +22,8 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Once streaming, replies should be quick; a dead connection must not hold up the
 /// control worker (and the reconnect) for long.
 const RUNTIME_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long to wait for the answer to `GET /info`.
+const INFO_TIMEOUT: Duration = Duration::from_millis(1500);
 /// TEARDOWN is a courtesy: never wait long for it.
 const TEARDOWN_TIMEOUT: Duration = Duration::from_millis(500);
 /// How long to wait for the audio thread to park or drain.
@@ -40,6 +42,8 @@ pub struct AirPlaySink {
     /// The RTSP connection, to cut a request short when the session is lost.
     rtsp_socket: TcpStream,
     threads: Vec<JoinHandle<()>>,
+    /// What the receiver reported taking to play audio, in frames.
+    output_latency: usize,
 }
 
 /// The control worker's side of a session: the RTSP connection and what it needs to
@@ -60,6 +64,12 @@ impl AirPlaySink {
         if !device.supported {
             return Err(format!("{} requires encrypted AirPlay (not supported)", device.name));
         }
+        let output_latency =
+            Rtsp::new(connect_any(device)?, "*".into(), "AirPlay/381.13", super::dacp::id().to_string()).ok().and_then(|mut info| {
+                // A receiver that doesn't answer mustn't hold up the connection.
+                info.set_reply_timeout(INFO_TIMEOUT);
+                negotiate::info_latency(&mut info, device)
+            });
         let stream = connect_any(device)?;
         let local_ip = stream.local_addr().map_err(|e| e.to_string())?.ip();
         let remote_ip = stream.peer_addr().map_err(|e| e.to_string())?.ip();
@@ -126,7 +136,9 @@ impl AirPlaySink {
         );
         let session = Session { rtsp, shared: shared.clone(), volume_sent: None, name: device.name.clone(), local_ip, remote_ip };
         let (control, worker, rtsp_socket) = start_control(session)?;
-        let mut sink = Self { _events: events, _ptp: ptp, shared, producer, control, worker: Some(worker), rtsp_socket, threads };
+        let output_latency = output_latency.map_or(0, |l| (l.as_secs_f64() * f64::from(RATE)) as usize);
+        let mut sink =
+            Self { _events: events, _ptp: ptp, shared, producer, control, worker: Some(worker), rtsp_socket, threads, output_latency };
         sink.set_volume(volume);
         Ok(sink)
     }
@@ -296,7 +308,7 @@ impl Sink for AirPlaySink {
     }
 
     fn latency_frames(&self) -> usize {
-        LATENCY as usize + LEAD as usize
+        LATENCY as usize + LEAD as usize + self.output_latency
     }
 
     fn drops_buffer_on_pause(&self) -> bool {
@@ -430,7 +442,17 @@ mod tests {
         rtsp.set_reply_timeout(RUNTIME_REPLY_TIMEOUT);
         let session = Session { rtsp, shared: shared.clone(), volume_sent: None, name: "test".into(), local_ip, remote_ip: local_ip };
         let (control, worker, rtsp_socket) = start_control(session).unwrap();
-        AirPlaySink { _events: None, _ptp: None, shared, producer, control, worker: Some(worker), rtsp_socket, threads: vec![audio_thread] }
+        AirPlaySink {
+            output_latency: 0,
+            _events: None,
+            _ptp: None,
+            shared,
+            producer,
+            control,
+            worker: Some(worker),
+            rtsp_socket,
+            threads: vec![audio_thread],
+        }
     }
 
     /// Wait up to 3 s for `done`.

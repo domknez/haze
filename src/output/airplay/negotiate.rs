@@ -102,6 +102,35 @@ pub fn airplay2(rtsp: &mut Rtsp, device: &Device, local: &Local, remote_ip: IpAd
     Ok(Negotiated { data_port: data_port as u16, control_port: control_port as u16, audio_key: Some(audio_key), events, ptp })
 }
 
+/// Ask the receiver (`GET /info`) how long it takes to turn audio into sound, on top
+/// of the latency we ask for. Senders of video use this to keep the picture in
+/// step; receivers that don't answer, or don't say, get none. `rtsp` is a
+/// connection of its own, so a receiver that dislikes the question can't spoil
+/// the session.
+pub fn info_latency(rtsp: &mut Rtsp, device: &Device) -> Option<Duration> {
+    let resp = rtsp.request("GET", Some("/info"), &[], None).inspect_err(|e| log_debug!("airplay: {} /info: {e}", device.name)).ok()?;
+    let info = bplist::decode(&resp.body).inspect_err(|e| log_debug!("airplay: {} /info: {e}", device.name)).ok()?;
+    let latency = output_latency(&info);
+    match latency {
+        Some(l) => log_info!("airplay: {} reports {} ms output latency", device.name, l.as_millis()),
+        None => log_info!("airplay: {} reports no output latency", device.name),
+    }
+    latency
+}
+
+/// From `/info`'s `audioLatencies`: the output latency for realtime streams
+/// (type 96) of the default audio type, else for realtime streams, else any.
+fn output_latency(info: &Value) -> Option<Duration> {
+    let Some(Value::Array(entries)) = info.get("audioLatencies") else { return None };
+    let is = |e: &&Value, kind: u64| e.get("type").and_then(Value::as_u64) == Some(kind);
+    let default = |e: &&Value| matches!(e.get("audioType"), Some(Value::String(t)) if t == "default");
+    let entry =
+        entries.iter().find(|e| is(e, 96) && default(e)).or_else(|| entries.iter().find(|e| is(e, 96))).or_else(|| entries.first())?;
+    let micros = entry.get("outputLatencyMicros").and_then(Value::as_u64)?;
+    // Anything beyond a few seconds is a misreading, not a latency.
+    (micros <= 5_000_000).then(|| Duration::from_micros(micros))
+}
+
 /// Transient HomeKit pair-setup (M1..M4). Returns the 64-byte SRP session key.
 fn pair_transient(rtsp: &mut Rtsp) -> Result<[u8; 64], String> {
     let transient = [("X-Apple-HKP", "4".to_string())];
@@ -191,4 +220,26 @@ fn random_bytes<const N: usize>() -> [u8; N] {
     let mut b = [0u8; N];
     getrandom::fill(&mut b).expect("OS RNG");
     b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn latency(kind: u64, audio: &str, micros: u64) -> Value {
+        dict([("type", Value::Int(kind)), ("audioType", Value::String(audio.into())), ("outputLatencyMicros", Value::Int(micros))])
+    }
+
+    #[test]
+    fn reads_the_realtime_output_latency() {
+        let info = dict([(
+            "audioLatencies",
+            Value::Array(vec![latency(100, "default", 400_000), latency(96, "media", 90_000), latency(96, "default", 120_000)]),
+        )]);
+        assert_eq!(output_latency(&info), Some(Duration::from_millis(120)));
+        let no_default = dict([("audioLatencies", Value::Array(vec![latency(103, "default", 1), latency(96, "media", 90_000)]))]);
+        assert_eq!(output_latency(&no_default), Some(Duration::from_millis(90)));
+        assert_eq!(output_latency(&dict([("name", Value::String("Kitchen".into()))])), None);
+        assert_eq!(output_latency(&dict([("audioLatencies", Value::Array(vec![latency(96, "default", 60_000_000)]))])), None);
+    }
 }
