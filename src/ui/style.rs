@@ -61,7 +61,7 @@ pub static DARK: Palette = Palette {
 
 pub static LIGHT: Palette = Palette {
     backdrop: rgb(0xe9, 0xe7, 0xe3),
-    glass: rgba(0xfa, 0xf8, 0xf5, 214),
+    glass: rgba(0xfa, 0xf8, 0xf5, 232),
     glass_strong: rgba(0xff, 0xff, 0xff, 248),
     line: rgba(0, 0, 0, 24),
     hl: rgba(0, 0, 0, 14),
