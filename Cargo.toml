@@ -1,0 +1,56 @@
+[package]
+name = "haze"
+version = "0.1.0"
+edition = "2024"
+description = "Free and open source, ultra-lightweight desktop IPTV player (M3U and Xtream Codes), with AirPlay 2 output"
+license = "MIT"
+repository = "https://github.com/domknez/haze"
+
+[dependencies]
+cpal = "0.18"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
+# Demuxing and decoding every stream an IPTV provider sends (MPEG-TS, HLS, H.264/HEVC,
+# AAC/AC-3/MP2), scaling video for the screen and resampling audio for the outputs.
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-scaling", "software-resampling"] }
+fastrand = "2"
+flate2 = "1"
+keyring-core = "1"
+mdns-sd = { version = "0.21", default-features = false }
+quick-xml = "0.42"
+rtrb = "0.4"
+serde_json = "1"
+souvlaki = "0.8"
+ureq = { version = "3", features = ["json"] }
+if-addrs = "0.15"
+sha2 = "0.11"
+hkdf = "0.13"
+chacha20poly1305 = "0.11"
+num-bigint = "0.5"
+getrandom = "0.4"
+zune-jpeg = "0.5"
+png = "0.18"
+thiserror = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+# Keeping macOS from napping haze while it plays (audio may go to the network, so the
+# system can't tell), and real-time priority for the audio threads.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = { version = "1", default-features = false }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+symphonia = { version = "0.6", default-features = false, features = ["alac"] }

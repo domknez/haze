@@ -1,0 +1,3 @@
+# Wide-screen friendly but still reviewable in a side-by-side diff.
+max_width = 140
+use_small_heuristics = "Max"

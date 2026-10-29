@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>haze_ — IPTV mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit;color:inherit}
+body{background:#0c0c0d;color:#ddd;font:14px/1.4 "Space Grotesk",system-ui,sans-serif;min-height:100vh;transition:background .2s}
+html[data-theme=light] body{background:#c9c9c4;color:#222}
+
+/* ---------- mockup chrome (not part of the app) ---------- */
+.chrome{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;padding:18px 20px 6px}
+.chrome .title{font:600 13px "JetBrains Mono",monospace;opacity:.7;margin-right:12px}
+.seg{display:flex;background:rgba(127,127,127,.15);border-radius:10px;padding:3px}
+.seg button{padding:7px 14px;border-radius:8px;font-size:13px;opacity:.7}
+.seg button.on{background:rgba(127,127,127,.35);opacity:1}
+.hint{text-align:center;font:12px "JetBrains Mono",monospace;opacity:.5;padding:2px 0 14px}
+.stage{display:flex;justify-content:center;padding:0 20px 40px}
+.design{display:none}.design.on{display:block}
+.win{width:1360px;height:820px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 30px 80px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column}
+.lights{display:flex;gap:8px;padding:0 14px}
+.lights i{width:12px;height:12px;border-radius:50%;background:#ff5f57}
+.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* ---------- shared: fake video ---------- */
+.video{position:relative;overflow:hidden;background:#0b3d1e}
+.pitch{position:absolute;inset:0;background:
+  repeating-linear-gradient(90deg,#1f7a3a 0 7%,#1a6e33 7% 14%);}
+.pitch:before{content:"";position:absolute;left:8%;right:8%;top:12%;bottom:12%;border:2px solid rgba(255,255,255,.55)}
+.pitch:after{content:"";position:absolute;left:50%;top:50%;width:18%;aspect-ratio:1;border:2px solid rgba(255,255,255,.55);border-radius:50%;transform:translate(-50%,-50%)}
+.pitch .mid{position:absolute;left:50%;top:12%;bottom:12%;width:2px;background:rgba(255,255,255,.55)}
+.pitch .box{position:absolute;top:32%;bottom:32%;width:12%;border:2px solid rgba(255,255,255,.55)}
+.pitch .box.l{left:8%;border-left:0}.pitch .box.r{right:8%;border-right:0}
+.pitch .p{position:absolute;width:1.3%;aspect-ratio:1;border-radius:50%;background:#fff;box-shadow:0 2px 3px rgba(0,0,0,.4)}
+.pitch .p.b{background:#1d4ed8}.pitch .p.ball{width:.7%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.2)}
+.vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.45));pointer-events:none}
+.scorebug{position:absolute;left:3%;top:5%;display:flex;font:600 13px "JetBrains Mono",monospace;border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.scorebug span{padding:5px 9px;background:#111;color:#fff}.scorebug span.s{background:#fff;color:#111}.scorebug span.t{background:#c8102e}
+.chlogo{position:absolute;right:3%;top:5%;font:800 13px Manrope,sans-serif;color:rgba(255,255,255,.75);letter-spacing:.04em}
+
+/* logo tiles */
+.lg{display:inline-flex;align-items:center;justify-content:center;flex:none;font:700 10px Manrope,sans-serif;color:#fff;letter-spacing:.02em;border-radius:6px}
+
+/* ======================================================================
+   DESIGN A — GRAPHITE (dust family)
+   ====================================================================== */
+.da{--bg:#161718;--side:#131415;--surface:#1c1d1f;--hover:#222326;--line:#2a2c2f;--border:#34363a;--text:#e6e6e3;--dim:#9c9ea3;--faint:#75787f;--accent:#c6f36b;--fill:#c6f36b;--on:#1a1f0a;--danger:#f2704c;--raised:#2a2c2f}
+html[data-theme=light] .da{--bg:#ececE8;--side:#e4e4df;--surface:#f3f3ef;--hover:#e0e0db;--line:#d3d3cd;--border:#c4c4bd;--text:#1c1d1f;--dim:#5e6064;--faint:#85878b;--accent:#4c6a0a;--fill:#c6f36b;--on:#1a1f0a;--danger:#c2412a;--raised:#dadad4}
+.da .win{background:var(--bg);color:var(--text);font-family:"Space Grotesk",sans-serif}
+.da .mono{font-family:"JetBrains Mono",monospace}
+.da .body{flex:1;display:flex;min-height:0}
+.da aside{width:228px;background:var(--side);display:flex;flex-direction:column;padding:12px 10px;border-right:1px solid var(--line)}
+.da .top{display:flex;align-items:center;justify-content:space-between;height:26px;margin:-2px 0 14px}
+.da .brand{font:700 17px "Space Grotesk";letter-spacing:-.01em}
+.da .brand b{color:var(--accent)}
+.da .nav a{display:flex;justify-content:space-between;align-items:center;padding:7px 9px;border-radius:7px;color:var(--dim);font-size:14px}
+.da .nav a.on{background:var(--text);color:var(--bg);font-weight:600}
+.da .nav a .k{font:10px "JetBrains Mono";opacity:.7}
+.da .sect{display:flex;justify-content:space-between;font:600 10.5px "JetBrains Mono";letter-spacing:.08em;color:var(--faint);margin:20px 9px 8px;text-transform:uppercase}
+.da .sect button{color:var(--dim);font-size:15px;line-height:10px}
+.da .src{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;font-size:13.5px}
+.da .src.on{background:var(--surface);box-shadow:inset 0 0 0 1px var(--line)}
+.da .src .dot{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font:700 9px "JetBrains Mono";color:var(--on);background:var(--fill)}
+.da .src .dot.m{background:var(--raised);color:var(--dim)}
+.da .src .meta{margin-left:auto;font:10.5px "JetBrains Mono";color:var(--faint)}
+.da .src small{display:block;font:10px "JetBrains Mono";color:var(--faint)}
+.da .cats a{display:flex;justify-content:space-between;padding:5px 9px;font-size:13px;color:var(--dim);border-radius:6px}
+.da .cats a.on{color:var(--text);background:var(--hover)}
+.da .cats a span{font:10.5px "JetBrains Mono";color:var(--faint)}
+.da .acct{margin-top:auto;display:flex;gap:10px;align-items:center;padding:9px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.da .acct .av{width:26px;height:26px;border-radius:6px;background:var(--fill);color:var(--on);font:700 12px "Space Grotesk";display:flex;align-items:center;justify-content:center}
+.da .acct small{display:block;font:10.5px "JetBrains Mono";color:var(--faint)}
+.da .list{width:330px;border-right:1px solid var(--line);display:flex;flex-direction:column}
+.da .search{margin:12px;display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;color:var(--faint);font-size:13px}
+.da .search kbd{margin-left:auto;font:10px "JetBrains Mono";border:1px solid var(--border);border-radius:4px;padding:1px 4px}
+.da .lhead{display:flex;justify-content:space-between;padding:2px 14px 8px;font:600 10.5px "JetBrains Mono";letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+.da .rows{overflow:hidden;flex:1}
+.da .row{display:flex;gap:10px;align-items:center;padding:8px 14px;position:relative}
+.da .row.on{background:var(--surface)}
+.da .row.on:before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--accent)}
+.da .row .num{width:22px;font:11px "JetBrains Mono";color:var(--faint);text-align:right}
+.da .row .lg{width:34px;height:34px}
+.da .row .t{flex:1;min-width:0}
+.da .row .n{font-size:14px;font-weight:500;display:flex;gap:6px;align-items:center}
+.da .row .pr{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.da .row .bar{height:2px;background:var(--line);border-radius:2px;margin-top:5px}
+.da .row .bar i{display:block;height:100%;background:var(--dim);border-radius:2px}
+.da .row.on .bar i{background:var(--accent)}
+.da .row .star{color:var(--faint);font-size:13px}.da .row .star.f{color:var(--accent)}
+.da .tag{font:600 9px "JetBrains Mono";padding:1px 4px;border-radius:3px;border:1px solid var(--border);color:var(--faint)}
+.da main{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px 22px 0;overflow:hidden}
+.da .video{border-radius:10px;aspect-ratio:16/9;width:100%;max-height:440px}
+.da .live{position:absolute;left:12px;bottom:12px;font:600 10.5px "JetBrains Mono";background:var(--danger);color:#fff;padding:3px 7px;border-radius:4px}
+.da .info{display:flex;justify-content:space-between;align-items:flex-end;margin:16px 0 4px}
+.da .eyebrow{font:10.5px "JetBrains Mono";color:var(--faint);letter-spacing:.04em}
+.da h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:3px}
+.da .chips{display:flex;gap:6px;margin-top:9px}
+.da .chip{font:10.5px "JetBrains Mono";border:1px solid var(--border);color:var(--dim);padding:2px 7px;border-radius:5px}
+.da .chip.a{border-color:var(--accent);color:var(--accent)}
+.da .acts{display:flex;gap:8px}
+.da .btn{border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:13px;color:var(--text)}
+.da .btn.p{background:var(--fill);color:var(--on);border-color:var(--fill);font-weight:600}
+.da .epg{margin-top:16px;display:flex;gap:10px;overflow:hidden}
+.da .slot{flex:none;width:190px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.da .slot.now{border-color:var(--accent)}
+.da .slot .tm{font:10.5px "JetBrains Mono";color:var(--faint)}
+.da .slot.now .tm{color:var(--accent)}
+.da .slot .tt{font-size:13.5px;font-weight:500;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.da .slot .ds{font-size:11.5px;color:var(--dim);margin-top:2px}
+.da footer{height:74px;flex:none;background:var(--side);border-top:1px solid var(--line);display:flex;align-items:center;padding:0 18px;gap:18px}
+.da .np{display:flex;gap:10px;align-items:center;width:250px}
+.da .np .lg{width:44px;height:44px;border-radius:7px;font-size:12px}
+.da .np b{display:block;font-size:14px}.da .np small{font-size:12px;color:var(--dim)}
+.da .ctl{display:flex;gap:16px;align-items:center;color:var(--dim)}
+.da .ctl .pp{width:36px;height:36px;border-radius:8px;background:var(--text);color:var(--bg);display:flex;align-items:center;justify-content:center}
+.da .seek{flex:1;display:flex;align-items:center;gap:10px;font:11px "JetBrains Mono";color:var(--faint)}
+.da .track{flex:1;height:4px;background:var(--line);border-radius:3px;position:relative}
+.da .track .buf{position:absolute;left:0;top:0;bottom:0;width:100%;background:var(--border);border-radius:3px}
+.da .track .pos{position:absolute;left:0;top:0;bottom:0;width:96%;background:var(--accent);border-radius:3px}
+.da .track .knob{position:absolute;left:96%;top:50%;width:11px;height:11px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%)}
+.da .golive{color:var(--danger);font-weight:600}
+.da .right{display:flex;gap:14px;align-items:center;color:var(--dim)}
+.da .air{display:flex;gap:6px;align-items:center;border:1px solid var(--accent);color:var(--accent);padding:5px 9px;border-radius:7px;font:600 11.5px "JetBrains Mono"}
+.da .vol{width:70px;height:3px;background:var(--line);border-radius:2px;position:relative}.da .vol i{position:absolute;left:0;top:0;bottom:0;width:60%;background:var(--dim);border-radius:2px}
+
+/* ======================================================================
+   DESIGN B — CINEMA (video first, glass overlays)
+   ====================================================================== */
+.db{--accent:#ff6a3d;--on:#fff;--glass:rgba(16,16,20,.62);--glass2:rgba(30,30,36,.7);--text:#f4f2ef;--dim:rgba(244,242,239,.66);--faint:rgba(244,242,239,.42);--line:rgba(255,255,255,.1);--hl:rgba(255,255,255,.1)}
+html[data-theme=light] .db{--accent:#e8501f;--glass:rgba(250,248,245,.78);--glass2:rgba(255,255,255,.85);--text:#18171a;--dim:rgba(24,23,26,.66);--faint:rgba(24,23,26,.45);--line:rgba(0,0,0,.09);--hl:rgba(0,0,0,.06)}
+.db .win{background:#000;font-family:Manrope,sans-serif;color:var(--text)}
+.db .video{position:absolute;inset:0}
+.db .shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55),transparent 22%,transparent 55%,rgba(0,0,0,.7));pointer-events:none}
+html[data-theme=light] .db .shade{background:linear-gradient(180deg,rgba(0,0,0,.25),transparent 22%,transparent 60%,rgba(0,0,0,.35))}
+.glass{background:var(--glass);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border:1px solid var(--line)}
+.db .topbar{position:absolute;top:12px;left:12px;right:12px;height:46px;border-radius:14px;display:flex;align-items:center;gap:14px;padding:0 10px 0 4px;z-index:3}
+.db .brand{font:800 16px Manrope;letter-spacing:-.02em;margin-left:6px}
+.db .brand b{color:var(--accent)}
+.db .tabs{display:flex;gap:2px;margin-left:18px}
+.db .tabs a{padding:6px 13px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--dim)}
+.db .tabs a.on{background:var(--hl);color:var(--text)}
+.db .srcpill{margin-left:auto;display:flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border-radius:10px;background:var(--hl);font-size:13px;font-weight:600}
+.db .srcpill i{font-style:normal;font:600 9px "JetBrains Mono";background:var(--accent);color:#fff;padding:2px 5px;border-radius:5px}
+.db .ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+.db .ico:hover{background:var(--hl)}
+.db .airpill{display:flex;gap:7px;align-items:center;padding:6px 11px;border-radius:10px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:700}
+.db .rail{position:absolute;top:70px;left:12px;bottom:186px;width:300px;border-radius:16px;z-index:3;display:flex;flex-direction:column;overflow:hidden}
+.db .cats{display:flex;gap:6px;padding:12px 12px 8px;flex-wrap:wrap}
+.db .cats a{font-size:12px;font-weight:600;padding:5px 10px;border-radius:20px;background:var(--hl);color:var(--dim)}
+.db .cats a.on{background:var(--text);color:var(--glass2)}
+html[data-theme=dark] .db .cats a.on{color:#111}
+.db .row{display:flex;gap:11px;align-items:center;padding:8px 12px;margin:0 6px;border-radius:11px}
+.db .row.on{background:var(--hl)}
+.db .row .num{font:11px "JetBrains Mono";color:var(--faint);width:20px;text-align:right}
+.db .row .lg{width:38px;height:38px;border-radius:10px}
+.db .row .t{flex:1;min-width:0}
+.db .row .n{font-size:14px;font-weight:700}
+.db .row .pr{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.db .row .ring{width:22px;height:22px;border-radius:50%;flex:none}
+.db .bottom{position:absolute;left:12px;right:12px;bottom:12px;height:162px;border-radius:18px;z-index:3;display:flex;flex-direction:column;padding:16px 20px}
+.db .bline{display:flex;align-items:center;gap:16px}
+.db .bline .lg{width:46px;height:46px;border-radius:12px;font-size:12px}
+.db .livechip{font:700 10px "JetBrains Mono";background:var(--accent);color:#fff;padding:3px 7px;border-radius:5px;letter-spacing:.05em}
+.db h2{font-size:21px;font-weight:800;letter-spacing:-.02em}
+.db .sub{font-size:12.5px;color:var(--dim)}
+.db .ctls{margin-left:auto;display:flex;gap:6px;align-items:center}
+.db .pp{width:44px;height:44px;border-radius:50%;background:var(--text);color:var(--glass2);display:flex;align-items:center;justify-content:center}
+html[data-theme=dark] .db .pp{color:#111}
+.db .prog{display:flex;align-items:center;gap:12px;margin:14px 0 12px;font:11px "JetBrains Mono";color:var(--faint)}
+.db .tr{flex:1;height:5px;border-radius:5px;background:var(--hl);position:relative}
+.db .tr i{position:absolute;left:0;top:0;bottom:0;width:58%;border-radius:5px;background:var(--accent)}
+.db .tr b{position:absolute;left:58%;top:-4px;width:2px;height:13px;background:var(--text)}
+.db .next{display:flex;gap:8px}
+.db .nx{flex:1;padding:7px 10px;border-radius:10px;background:var(--hl);min-width:0}
+.db .nx .tm{font:10.5px "JetBrains Mono";color:var(--faint)}
+.db .nx .tt{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.db .nx.now{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.db .nx.now .tm{color:var(--accent)}
+
+/* ======================================================================
+   DESIGN C — GUIDE (EPG-first, editorial)
+   ====================================================================== */
+.dc{--bg:#0f1115;--panel:#151821;--surface:#1b1f2a;--hover:#222736;--line:#262b38;--text:#e9ecf2;--dim:#98a0b3;--faint:#687089;--accent:#5b8cff;--fill:#3d6dff;--on:#fff;--now:#ff4d6d;--prog:#1e2534;--progon:#26345a}
+html[data-theme=light] .dc{--bg:#f6f7f9;--panel:#ffffff;--surface:#f0f2f6;--hover:#e8ebf1;--line:#e1e4ea;--text:#151821;--dim:#5a6275;--faint:#8b92a3;--accent:#2f5bea;--fill:#2f5bea;--on:#fff;--now:#e11d48;--prog:#eef1f6;--progon:#dbe5ff}
+.dc .win{background:var(--bg);color:var(--text);font-family:"IBM Plex Sans",sans-serif}
+.dc .mono{font-family:"IBM Plex Mono",monospace}
+.dc .tb{height:52px;flex:none;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--line);background:var(--panel);padding-right:14px}
+.dc .brand{font:600 16px "IBM Plex Mono";letter-spacing:-.02em}
+.dc .brand b{color:var(--accent)}
+.dc .seg2{display:flex;background:var(--surface);border-radius:8px;padding:3px;margin-left:16px}
+.dc .seg2 a{padding:5px 13px;border-radius:6px;font-size:13px;color:var(--dim);font-weight:500}
+.dc .seg2 a.on{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.dc .s{flex:1;max-width:340px;margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:8px;padding:7px 10px;color:var(--faint);font-size:13px}
+.dc .srcsel{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px}
+.dc .srcsel .k{font:500 9.5px "IBM Plex Mono";color:var(--accent);background:var(--progon);padding:1px 5px;border-radius:4px}
+.dc .air{display:flex;gap:6px;align-items:center;background:var(--fill);color:var(--on);border-radius:8px;padding:6px 11px;font-size:12.5px;font-weight:600}
+.dc .upper{height:330px;flex:none;display:flex;gap:20px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.dc .video{width:520px;border-radius:8px;flex:none}
+.dc .live{position:absolute;left:10px;top:10px;display:flex;gap:5px;align-items:center;font:500 10.5px "IBM Plex Mono";background:rgba(0,0,0,.6);color:#fff;padding:3px 8px;border-radius:4px}
+.dc .live:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--now)}
+.dc .vctl{position:absolute;left:0;right:0;bottom:0;padding:24px 12px 10px;background:linear-gradient(transparent,rgba(0,0,0,.7));display:flex;align-items:center;gap:12px;color:#fff;font:11px "IBM Plex Mono"}
+.dc .vctl .t{flex:1;height:3px;background:rgba(255,255,255,.3);border-radius:2px;position:relative}.dc .vctl .t i{position:absolute;inset:0 42% 0 0;background:#fff;border-radius:2px}
+.dc .det{flex:1;min-width:0;display:flex;flex-direction:column}
+.dc .chline{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--dim)}
+.dc .chline .lg{width:28px;height:28px}
+.dc h1{font-size:30px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;line-height:1.15}
+.dc .when{font:12px "IBM Plex Mono";color:var(--dim)}
+.dc .desc{font-size:13.5px;color:var(--dim);margin-top:12px;max-width:560px;line-height:1.55}
+.dc .meta{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap}
+.dc .meta span{font:11px "IBM Plex Mono";background:var(--surface);color:var(--dim);padding:3px 8px;border-radius:5px}
+.dc .acts{margin-top:auto;display:flex;gap:8px}
+.dc .btn{border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;background:var(--panel)}
+.dc .btn.p{background:var(--fill);color:var(--on);border-color:var(--fill)}
+.dc .grid{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+.dc .ghead{display:flex;height:38px;flex:none;border-bottom:1px solid var(--line);background:var(--panel)}
+.dc .gfilter{width:210px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+.dc .gfilter b{color:var(--text);font-weight:600}
+.dc .ruler{flex:1;position:relative;font:11px "IBM Plex Mono";color:var(--faint)}
+.dc .ruler span{position:absolute;top:12px;transform:translateX(6px)}
+.dc .ruler span:before{content:"";position:absolute;left:-6px;top:-12px;height:38px;width:1px;background:var(--line)}
+.dc .grows{flex:1;overflow:hidden;position:relative}
+.dc .grow{display:flex;height:52px;border-bottom:1px solid var(--line)}
+.dc .gch{width:210px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-right:1px solid var(--line);background:var(--panel)}
+.dc .gch .num{font:11px "IBM Plex Mono";color:var(--faint);width:18px}
+.dc .gch .lg{width:30px;height:30px}
+.dc .gch .n{font-size:13.5px;font-weight:500;flex:1}
+.dc .gch .f{color:var(--accent);font-size:12px}
+.dc .grow.on .gch{box-shadow:inset 3px 0 0 var(--accent)}
+.dc .gline{flex:1;position:relative}
+.dc .pg{position:absolute;top:4px;bottom:4px;border-radius:6px;background:var(--prog);padding:6px 9px;overflow:hidden;white-space:nowrap}
+.dc .pg b{display:block;font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.dc .pg small{font:10.5px "IBM Plex Mono";color:var(--faint)}
+.dc .pg.cur{background:var(--progon)}
+.dc .pg.sel{background:var(--fill);color:var(--on)}.dc .pg.sel small{color:rgba(255,255,255,.75)}
+.dc .pg.past{opacity:.55}
+.dc .pg .cu{font:500 9px "IBM Plex Mono";color:var(--accent);margin-left:4px}
+.dc .nowline{position:absolute;top:0;bottom:0;width:2px;background:var(--now);z-index:2}
+.dc .nowline:before{content:attr(data-t);position:absolute;top:-30px;left:50%;transform:translateX(-50%);font:500 10.5px "IBM Plex Mono";background:var(--now);color:#fff;padding:2px 6px;border-radius:4px}
+.dc .status{height:30px;flex:none;border-top:1px solid var(--line);background:var(--panel);display:flex;align-items:center;gap:18px;padding:0 14px;font:11px "IBM Plex Mono";color:var(--faint)}
+.dc .status .ok{color:#22c55e}
+
+/* ---------- overlays: add source + airplay (themed per design) ---------- */
+.ov{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+.ov.on{display:flex}
+.modal{width:520px;border-radius:14px;padding:22px 24px;box-shadow:0 30px 70px rgba(0,0,0,.45)}
+.modal h3{font-size:19px;font-weight:700;letter-spacing:-.01em}
+.modal .lead{font-size:13px;opacity:.65;margin:4px 0 16px}
+.mseg{display:flex;padding:3px;border-radius:9px;margin-bottom:16px}
+.mseg button{flex:1;padding:8px;border-radius:7px;font-size:13px;font-weight:600;opacity:.6}
+.mseg button.on{opacity:1}
+.fld{margin-bottom:12px}
+.fld label{display:block;font-size:11.5px;margin-bottom:5px;opacity:.65;letter-spacing:.02em}
+.fld .in{border-radius:8px;padding:9px 11px;font-size:13.5px;display:flex;align-items:center;gap:8px}
+.fld .in.ph{opacity:.55}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:4px 0;opacity:.85}
+.chk i{width:15px;height:15px;border-radius:4px;display:inline-block}
+.mfoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;align-items:center}
+.mfoot .note{margin-right:auto;font-size:11.5px;opacity:.55}
+.mfoot button{padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600}
+.pane{display:none}.pane.on{display:block}
+.pop{position:absolute;z-index:21;width:310px;border-radius:13px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.4);display:none}
+.pop.on{display:block}
+.pop h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin:2px 6px 8px;font-weight:600}
+.spk{display:flex;gap:10px;align-items:center;padding:8px 8px;border-radius:9px}
+.spk .ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.spk b{display:block;font-size:13.5px;font-weight:600}.spk small{font-size:11.5px;opacity:.6}
+.spk .ck{margin-left:auto;width:18px;height:18px;border-radius:50%}
+.spkvol{height:4px;border-radius:3px;margin:4px 8px 10px 48px;position:relative}.spkvol i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+.sync{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:8px 8px 4px;margin-top:6px;opacity:.85}
+
+/* overlay theming */
+.da .modal,.da .pop{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+.da .mseg{background:var(--bg)}.da .mseg button.on{background:var(--raised)}
+.da .fld .in{background:var(--bg);border:1px solid var(--border);font-family:"JetBrains Mono";font-size:12.5px}
+.da .chk i{background:var(--fill)}
+.da .mfoot button{border:1px solid var(--border)}.da .mfoot button.p{background:var(--fill);color:var(--on);border-color:var(--fill)}
+.da .spk.on{background:var(--hover)}.da .spk .ic{background:var(--raised)}.da .spk.on .ic{background:var(--fill);color:var(--on)}
+.da .spk.on .ck{background:var(--accent)}.da .spk .ck{border:1.5px solid var(--border)}
+.da .spkvol{background:var(--line)}.da .spkvol i{background:var(--accent);width:55%}
+.db .modal,.db .pop{background:var(--glass2);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);color:var(--text);border:1px solid var(--line);border-radius:20px}
+.db .mseg{background:var(--hl);border-radius:12px}.db .mseg button{border-radius:10px}.db .mseg button.on{background:var(--accent);color:#fff}
+.db .fld .in{background:var(--hl);border-radius:11px}
+.db .chk i{background:var(--accent)}
+.db .mfoot button{background:var(--hl);border-radius:11px}.db .mfoot button.p{background:var(--accent);color:#fff}
+.db .spk{border-radius:12px}.db .spk.on{background:var(--hl)}.db .spk .ic{background:var(--hl)}.db .spk.on .ic{background:var(--accent);color:#fff}
+.db .spk.on .ck{background:var(--accent)}.db .spk .ck{border:1.5px solid var(--faint)}
+.db .spkvol{background:var(--hl)}.db .spkvol i{background:var(--accent);width:70%}
+.dc .modal,.dc .pop{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px}
+.dc .mseg{background:var(--surface)}.dc .mseg button.on{background:var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.dc .fld .in{background:var(--bg);border:1px solid var(--line);font-family:"IBM Plex Mono";font-size:12.5px;border-radius:6px}
+.dc .chk i{background:var(--fill)}
+.dc .mfoot button{border:1px solid var(--line);border-radius:6px}.dc .mfoot button.p{background:var(--fill);color:var(--on);border-color:var(--fill)}
+.dc .spk.on{background:var(--surface)}.dc .spk .ic{background:var(--surface)}.dc .spk.on .ic{background:var(--fill);color:#fff}
+.dc .spk.on .ck{background:var(--accent)}.dc .spk .ck{border:1.5px solid var(--line)}
+.dc .spkvol{background:var(--line)}.dc .spkvol i{background:var(--accent);width:40%}
+svg{display:block}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <span class="title">haze_ · IPTV · mockups</span>
+  <div class="seg" id="dsel">
+    <button data-d="a" class="on">A · Graphite</button>
+    <button data-d="b">B · Cinema</button>
+    <button data-d="c">C · Guide</button>
+  </div>
+  <div class="seg" id="tsel">
+    <button data-t="dark" class="on">Dark</button>
+    <button data-t="light">Light</button>
+  </div>
+  <div class="seg" id="osel">
+    <button data-o="">No overlay</button>
+    <button data-o="add">Add source</button>
+    <button data-o="air">AirPlay</button>
+  </div>
+</div>
+<div class="hint">click "+" / the source or the AirPlay button in the app to open the same dialogs</div>
+
+<div class="stage">
+<!-- ===================================================== A -->
+<section class="design da on" id="d-a">
+<div class="win">
+  <div class="body">
+    <aside>
+      <div class="top"><div class="lights"><i></i><i></i><i></i></div><span class="brand">haze<b>_</b></span></div>
+      <nav class="nav">
+        <a class="on">Live TV <span class="k">⌘1</span></a>
+        <a>Guide <span class="k">⌘2</span></a>
+        <a>Movies <span class="k">⌘3</span></a>
+        <a>Series <span class="k">⌘4</span></a>
+        <a>Favorites <span class="k">⌘5</span></a>
+        <a>Recent <span class="k">⌘6</span></a>
+      </nav>
+      <div class="sect">Sources / 3 <button data-open="add">+</button></div>
+      <div class="src on"><span class="dot">XC</span><div>My provider<small>xtream · until 03/2027</small></div><span class="meta">2.4k</span></div>
+      <div class="src"><span class="dot m">M3U</span><div>Home list<small>m3u · url</small></div><span class="meta">186</span></div>
+      <div class="src"><span class="dot m">M3U</span><div>Free-TV HR<small>m3u · github</small></div><span class="meta">94</span></div>
+      <div class="sect">Categories</div>
+      <div class="cats" id="a-cats"></div>
+      <div class="acct"><span class="av">D</span><div style="font-size:13px">My provider<small>2/3 connections · EPG 12 min</small></div><span style="margin-left:auto;color:var(--faint)">⌃</span></div>
+    </aside>
+    <div class="list">
+      <div class="search">⌕ Search channels or shows <kbd>⌘F</kbd></div>
+      <div class="lhead"><span>Sports · 214</span><span>now</span></div>
+      <div class="rows" id="a-rows"></div>
+    </div>
+    <main>
+      <div class="video" id="a-video"><span class="live">● LIVE</span></div>
+      <div class="info">
+        <div>
+          <div class="eyebrow">ARENA SPORT 1 · 20:00–22:00 · HNL, ROUND 12</div>
+          <h1>Dinamo – Hajduk</h1>
+          <div class="chips"><span class="chip a">1080p50</span><span class="chip">H.264</span><span class="chip">AAC 2.0</span><span class="chip">catch-up 7d</span><span class="chip">HR · EN</span></div>
+        </div>
+        <div class="acts"><button class="btn">◷ From start</button><button class="btn">⧉ PiP</button><button class="btn p">★ Favorite</button></div>
+      </div>
+      <div class="epg" id="a-epg"></div>
+    </main>
+  </div>
+  <footer>
+    <div class="np"><span class="lg" style="background:#d4202a">ARENA<br>1</span><div><b>Arena Sport 1</b><small>Dinamo – Hajduk</small></div></div>
+    <div class="ctl">
+      <span title="Previous channel">⏮</span>
+      <span class="pp"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="currentColor"/></svg></span>
+      <span title="Next channel">⏭</span>
+    </div>
+    <div class="seek"><span>20:00</span><div class="track"><div class="buf"></div><div class="pos"></div><div class="knob"></div></div><span class="golive">● −0:42</span></div>
+    <div class="right">
+      <span title="Subtitles">CC</span><span title="Audio">♪ HR</span><span title="Mini player">⧉</span>
+      <button class="air" data-open="air">▭ office</button>
+      <span>🔈</span><div class="vol"><i></i></div>
+    </div>
+  </footer>
+  <div class="pop" data-pop="air" style="right:80px;bottom:84px"></div>
+  <div class="ov" data-ov="add"></div>
+</div>
+</section>
+
+<!-- ===================================================== B -->
+<section class="design db" id="d-b">
+<div class="win">
+  <div class="video" id="b-video"></div>
+  <div class="shade"></div>
+  <div class="topbar glass">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <span class="brand">haze<b>_</b></span>
+    <nav class="tabs"><a class="on">Live</a><a>Guide</a><a>Movies</a><a>Series</a><a>Favorites</a></nav>
+    <button class="srcpill" data-open="add"><i>XC</i>My provider ▾</button>
+    <span class="ico">⌕</span><span class="ico">⚙</span>
+    <button class="airpill" data-open="air">▭ Living room</button>
+  </div>
+  <div class="rail glass">
+    <div class="cats" id="b-cats"></div>
+    <div id="b-rows"></div>
+  </div>
+  <div class="bottom glass">
+    <div class="bline">
+      <span class="lg" style="background:#d4202a">ARENA<br>1</span>
+      <div>
+        <div style="display:flex;gap:8px;align-items:center"><span class="livechip">LIVE</span><span class="sub">Arena Sport 1 · HNL, round 12</span></div>
+        <h2>Dinamo – Hajduk</h2>
+      </div>
+      <div class="ctls">
+        <span class="ico">CC</span><span class="ico">♪</span><span class="ico">◷</span><span class="ico">⏮</span>
+        <span class="pp"><svg width="16" height="16" viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="currentColor"/></svg></span>
+        <span class="ico">⏭</span><span class="ico">⧉</span><span class="ico">⛶</span><span class="ico">🔈</span>
+      </div>
+    </div>
+    <div class="prog"><span>20:00</span><div class="tr"><i></i><b></b></div><span>22:00</span></div>
+    <div class="next" id="b-next"></div>
+  </div>
+  <div class="pop" data-pop="air" style="right:12px;top:66px"></div>
+  <div class="ov" data-ov="add"></div>
+</div>
+</section>
+
+<!-- ===================================================== C -->
+<section class="design dc" id="d-c">
+<div class="win">
+  <div class="tb">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <span class="brand">haze<b>_</b></span>
+    <nav class="seg2"><a>Live</a><a class="on">Guide</a><a>Movies</a><a>Series</a><a>Favorites</a></nav>
+    <div class="s">⌕ Search channels, shows, movies…</div>
+    <button class="srcsel" data-open="add"><span class="k">XC</span>My provider <span style="color:var(--faint)">▾</span></button>
+    <button class="air" data-open="air">▭ HomePod · Office</button>
+  </div>
+  <div class="upper">
+    <div class="video" id="c-video"><span class="live">LIVE</span>
+      <div class="vctl"><span>⏸</span><div class="t"><i></i></div><span>−0:42</span><span>⧉</span><span>⛶</span></div>
+    </div>
+    <div class="det">
+      <div class="chline"><span class="lg" style="background:#d4202a">AS1</span>Arena Sport 1 · channel 101</div>
+      <h1>Dinamo – Hajduk</h1>
+      <div class="when">today 20:00 – 22:00 · 58 min left</div>
+      <p class="desc">The round 12 derby of the SuperSport HNL, live from Maksimir. Coverage opens with a studio show half an hour before kick-off; analysis and interviews follow the match.</p>
+      <div class="meta"><span>1080p50</span><span>AAC 2.0</span><span>catch-up 7 days</span><span>HR</span></div>
+      <div class="acts"><button class="btn p">▶ Watch</button><button class="btn">◷ From start</button><button class="btn">⏺ Reminder</button><button class="btn">★</button></div>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="ghead"><div class="gfilter"><b>All</b> · Sports · News · Movies ▾</div><div class="ruler" id="c-ruler"></div></div>
+    <div class="grows" id="c-rows"></div>
+  </div>
+  <div class="status"><span class="ok">● connected</span><span>My provider · 2,418 channels</span><span>EPG updated 12 min ago</span><span style="margin-left:auto">buffer 2.1 s · 6.4 Mb/s · AirPlay latency 1.8 s (video in sync)</span></div>
+  <div class="pop" data-pop="air" style="right:14px;top:58px"></div>
+  <div class="ov" data-ov="add"></div>
+</div>
+</section>
+</div>
+
+<script>
+const CH=[
+ {n:101,name:'Arena Sport 1',s:'ARENA 1',c:'#d4202a',now:'Dinamo – Hajduk',p:52,nx:'HNL studio',f:1},
+ {n:102,name:'Arena Sport 2',s:'ARENA 2',c:'#b91c1c',now:'ATP Paris: quarter-final',p:30,nx:'WTA Finals'},
+ {n:103,name:'Sport Klub 1',s:'SK1',c:'#0f766e',now:'Premier League: Arsenal – Chelsea',p:71,nx:'Match of the Day',f:1},
+ {n:104,name:'Sport Klub 2',s:'SK2',c:'#115e59',now:'NBA: Lakers – Celtics (R)',p:12,nx:'EuroLeague'},
+ {n:105,name:'Eurosport 1',s:'E1',c:'#1e3a8a',now:'Cycling: Il Lombardia',p:88,nx:'Skiing: Sölden'},
+ {n:106,name:'HNTV',s:'HNTV',c:'#7c3aed',now:'Hajduk TV: derby preview',p:44,nx:'News'},
+ {n:1,name:'HRT 1',s:'HRT1',c:'#1d4ed8',now:'Dnevnik',p:64,nx:'Potjera',f:1},
+ {n:2,name:'HRT 2',s:'HRT2',c:'#2563eb',now:'Champions League magazine',p:20,nx:'Film: Sicario'},
+ {n:3,name:'RTL',s:'RTL',c:'#ea580c',now:'Exkluziv Tabloid',p:40,nx:'Kumovi'},
+ {n:4,name:'Nova TV',s:'NOVA',c:'#e11d48',now:'Dnevnik Nove TV',p:58,nx:'Gospodin Savršeni'},
+ {n:5,name:'Doma TV',s:'DOMA',c:'#db2777',now:'Larin izbor (R)',p:33,nx:'Film'},
+ {n:20,name:'HBO',s:'HBO',c:'#111827',now:'The Last of Us S2E4',p:15,nx:'Dune: Part Two'},
+ {n:31,name:'CNN',s:'CNN',c:'#b91c1c',now:'The Lead',p:76,nx:'Situation Room'},
+ {n:32,name:'BBC News',s:'BBC',c:'#991b1b',now:'World News Today',p:49,nx:'HARDtalk'},
+];
+const SPORT=CH.slice(0,6);
+const CATS=[['All',2418],['Croatia',62],['Sports',214],['News',88],['Movies',301],['Documentary',97],['Kids',54],['Music',41],['EX-YU',172],['UK',240]];
+const tile=(c,sz,fs)=>`<span class="lg" style="background:${c.c};${fs?'font-size:'+fs+'px':''}">${c.s.replace(' ','<br>')}</span>`;
+
+function pitch(){
+  const pl=[[30,40],[38,62],[45,30],[52,55],[60,46],[64,70],[70,35],[42,48],[56,28],[48,72],[34,50],[66,58],[74,48],[25,52]];
+  return `<div class="pitch"><div class="mid"></div><div class="box l"></div><div class="box r"></div>${pl.map((p,i)=>`<span class="p ${i%2?'b':''}" style="left:${p[0]}%;top:${p[1]}%"></span>`).join('')}<span class="p ball" style="left:54%;top:51%"></span></div><div class="vignette"></div><div class="scorebug"><span class="t">HNL</span><span>DIN</span><span class="s">1 – 0</span><span>HAJ</span><span>63:12</span></div><div class="chlogo">ARENA SPORT 1</div>`;
+}
+document.querySelectorAll('#a-video,#b-video,#c-video').forEach(v=>v.insertAdjacentHTML('afterbegin',pitch()));
+
+// A
+document.getElementById('a-cats').innerHTML=CATS.slice(0,8).map((c,i)=>`<a class="${i==2?'on':''}">${c[0]}<span>${c[1]}</span></a>`).join('');
+document.getElementById('a-rows').innerHTML=CH.map((c,i)=>`<div class="row ${i==0?'on':''}"><span class="num">${c.n}</span>${tile(c)}<div class="t"><div class="n">${c.name}${i==0?'<span class="tag">HD</span>':''}${i==2?'<span class="tag">4K</span>':''}</div><div class="pr">${c.now}</div><div class="bar"><i style="width:${c.p}%"></i></div></div><span class="star ${c.f?'f':''}">${c.f?'★':'☆'}</span></div>`).join('');
+const SL=[['18:30','Nogomet: Lokomotiva – Rijeka','HNL, round 12'],['19:30','HNL studio','derby preview'],['20:00','Dinamo – Hajduk','live · now'],['22:00','HNL studio','analysis and interviews'],['22:45','Premier League review','round highlights'],['23:30','Boxing: night of champions','UFC 310']];
+document.getElementById('a-epg').innerHTML=SL.map((s,i)=>`<div class="slot ${i==2?'now':''}" style="${i<2?'opacity:.55':''}"><div class="tm">${s[0]}${i<2?' · catch-up':''}${i==2?' · LIVE':''}</div><div class="tt">${s[1]}</div><div class="ds">${s[2]}</div></div>`).join('');
+
+// B
+document.getElementById('b-cats').innerHTML=['All','Sports','Croatia','News','Movies','★'].map((c,i)=>`<a class="${i==1?'on':''}">${c}</a>`).join('');
+document.getElementById('b-rows').innerHTML=SPORT.concat(CH.slice(6,8)).map((c,i)=>`<div class="row ${i==0?'on':''}"><span class="num">${c.n}</span>${tile(c)}<div class="t"><div class="n">${c.name}</div><div class="pr">${c.now}</div></div><span class="ring" style="background:conic-gradient(var(--accent) ${c.p}%,var(--hl) 0)"></span></div>`).join('');
+document.getElementById('b-next').innerHTML=[['19:30','HNL studio'],['20:00 · now','Dinamo – Hajduk'],['22:00','HNL studio: analysis'],['22:45','Premier League review'],['23:30','Boxing: night of champions']].map((s,i)=>`<div class="nx ${i==1?'now':''}" style="${i==0?'opacity:.55':''}"><div class="tm">${s[0]}</div><div class="tt">${s[1]}</div></div>`).join('');
+
+// C — EPG grid 19:00..23:00, now 21:02
+const T0=19*60,T1=23*60,NOW=21*60+2,pct=m=>(m-T0)/(T1-T0)*100;
+document.getElementById('c-ruler').innerHTML=[19,19.5,20,20.5,21,21.5,22,22.5].map(h=>`<span style="left:${pct(h*60)}%">${Math.floor(h)}:${h%1?'30':'00'}</span>`).join('');
+const PR={
+ 101:[[1110,'Lokomotiva – Rijeka'],[1170,'HNL studio'],[1200,'Dinamo – Hajduk'],[1320,'HNL studio'],[1365,'PL review']],
+ 102:[[1080,'ATP Paris: round of 16'],[1230,'ATP Paris: quarter-final'],[1350,'WTA Finals']],
+ 103:[[1110,'Premier League studio'],[1185,'Arsenal – Chelsea'],[1305,'Match of the Day']],
+ 104:[[1080,'NBA Action'],[1110,'EuroLeague: Partizan – Real'],[1230,'NBA: Lakers – Celtics (R)'],[1350,'NBA Action']],
+ 105:[[1050,'Cycling: Il Lombardia'],[1275,'Skiing: Sölden'],[1335,'Snooker']],
+ 1:[[1125,'Potrošački kod'],[1155,'Dnevnik'],[1200,'Potjera'],[1245,'Documentary: Adriatic'],[1320,'News'],[1345,'Film: Libertas']],
+ 2:[[1110,'Cartoons'],[1170,'Champions League magazine'],[1260,'Film: Sicario'],[1385,'Music']],
+ 3:[[1110,'Exkluziv Tabloid'],[1150,'RTL Danas'],[1200,'Kumovi'],[1275,'Superpar'],[1320,'Film: Heat']],
+ 4:[[1140,'Dnevnik Nove TV'],[1190,'Gospodin Savršeni'],[1260,'Ljubav je na selu'],[1330,'Red Carpet']],
+ 20:[[1080,'Dune: Part One'],[1235,'The Last of Us S2E4'],[1295,'Dune: Part Two']],
+ 31:[[1110,'The Lead'],[1170,'Situation Room'],[1260,'Anderson Cooper 360'],[1320,'CNN NewsNight']],
+};
+const rows=CH.filter(c=>PR[c.n]).map((c,i)=>{
+  const list=PR[c.n];
+  const blocks=list.map((p,j)=>{const s=Math.max(p[0],T0),e=Math.min(j+1<list.length?list[j+1][0]:p[0]+120,T1);if(e<=T0||s>=T1)return'';
+    const cur=p[0]<=NOW&&NOW<(j+1<list.length?list[j+1][0]:1e9),past=e<=NOW,sel=c.n==101&&cur;
+    const hh=x=>`${Math.floor(x/60)}:${String(x%60).padStart(2,'0')}`;
+    return `<div class="pg ${sel?'sel':cur?'cur':''} ${past?'past':''}" style="left:calc(${pct(s)}% + 2px);width:calc(${pct(e)-pct(s)}% - 4px)"><b>${p[1]}</b><small>${hh(p[0])}${past&&!sel?'<span class="cu">↺</span>':''}</small></div>`}).join('');
+  return `<div class="grow ${c.n==101?'on':''}"><div class="gch"><span class="num">${c.n}</span>${tile(c,0,9)}<span class="n">${c.name}</span>${c.f?'<span class="f">★</span>':''}</div><div class="gline">${blocks}</div></div>`;
+}).join('');
+document.getElementById('c-rows').innerHTML=rows+`<div class="nowline" data-t="21:02" style="left:calc(210px + (100% - 210px) * ${pct(NOW)/100})"></div>`;
+
+// overlays (same content, themed by design)
+const ADD=`<div class="modal">
+ <h3>Add source</h3><p class="lead">A playlist by link or from a file, or your provider login (Xtream Codes).</p>
+ <div class="mseg"><button data-tab="m3u" class="on">M3U link</button><button data-tab="file">M3U file</button><button data-tab="xc">Xtream Codes</button></div>
+ <div class="pane on" data-pane="m3u">
+  <div class="fld"><label>Name</label><div class="in">Home list</div></div>
+  <div class="fld"><label>Playlist URL (.m3u / .m3u8)</label><div class="in">https://example.net/get.php?type=m3u_plus</div></div>
+  <div class="fld"><label>EPG (XMLTV) — optional, otherwise from url-tvg</label><div class="in ph">https://example.net/xmltv.xml.gz</div></div>
+ </div>
+ <div class="pane" data-pane="file">
+  <div class="fld"><label>Name</label><div class="in">Free-TV HR</div></div>
+  <div class="fld"><label>File</label><div class="in">~/Downloads/playlist.m3u8 <span style="margin-left:auto;opacity:.6">Choose…</span></div></div>
+  <div class="fld"><label>EPG (XMLTV) — optional</label><div class="in ph">file or URL</div></div>
+ </div>
+ <div class="pane" data-pane="xc">
+  <div class="fld"><label>Name</label><div class="in">My provider</div></div>
+  <div class="fld"><label>Server</label><div class="in">http://line.provider.tv:8080</div></div>
+  <div class="two"><div class="fld"><label>User name</label><div class="in">domagoj</div></div><div class="fld"><label>Password</label><div class="in">••••••••••</div></div></div>
+  <div class="chk"><i></i>Live TV, movies and series (VOD) from the same account</div>
+ </div>
+ <div class="chk"><i></i>Refresh the list and EPG daily</div>
+ <div class="mfoot"><span class="note">passwords are kept in the system keychain</span><button data-close>Cancel</button><button class="p">Check and save</button></div>
+</div>`;
+const AIR=`<h4>Play on</h4>
+ <div class="spk"><span class="ic">▭</span><div><b>This computer</b><small>MacBook Pro speakers</small></div><span class="ck"></span></div>
+ <div class="spk on"><span class="ic">◉</span><div><b>Office</b><small>HomePod mini · AirPlay 2</small></div><span class="ck"></span></div>
+ <div class="spkvol"><i></i></div>
+ <div class="spk"><span class="ic">◉</span><div><b>Living room</b><small>Sonos Era 100 · AirPlay 2</small></div><span class="ck"></span></div>
+ <div class="spk"><span class="ic">◉</span><div><b>Kitchen</b><small>AirPort Express · AirPlay 1</small></div><span class="ck"></span></div>
+ <div class="sync"><span>Picture and sound sync</span><span>auto · 1.8 s</span></div>`;
+document.querySelectorAll('[data-ov=add]').forEach(o=>o.innerHTML=ADD);
+document.querySelectorAll('[data-pop=air]').forEach(o=>o.innerHTML=AIR);
+
+// interaction
+let D='a',O='';
+function setOv(o){O=o;document.querySelectorAll('[data-ov]').forEach(e=>e.classList.toggle('on',e.dataset.ov==o));document.querySelectorAll('[data-pop]').forEach(e=>e.classList.toggle('on',e.dataset.pop==o));
+  document.querySelectorAll('#osel button').forEach(b=>b.classList.toggle('on',b.dataset.o==o));}
+function sel(id,attr,fn){document.querySelectorAll(id+' button').forEach(b=>b.onclick=()=>{document.querySelectorAll(id+' button').forEach(x=>x.classList.toggle('on',x==b));fn(b.dataset[attr])})}
+sel('#dsel','d',d=>{D=d;document.querySelectorAll('.design').forEach(s=>s.classList.toggle('on',s.id=='d-'+d))});
+sel('#tsel','t',t=>document.documentElement.dataset.theme=t);
+sel('#osel','o',setOv);
+document.addEventListener('click',e=>{
+  const op=e.target.closest('[data-open]');if(op){setOv(O==op.dataset.open?'':op.dataset.open);return}
+  if(e.target.closest('[data-close]')||e.target.classList.contains('ov')){setOv('');return}
+  const tb=e.target.closest('[data-tab]');if(tb){const m=tb.closest('.modal');m.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('on',x==tb));m.querySelectorAll('[data-pane]').forEach(p=>p.classList.toggle('on',p.dataset.pane==tb.dataset.tab))}
+});
+// fit window into viewport
+function fit(){const s=Math.min(1,(innerWidth-40)/1360);document.querySelectorAll('.win').forEach(w=>{w.style.zoom=s})}
+addEventListener('resize',fit);fit();
+// deep link: #b-light-air
+const [hd,ht,ho]=location.hash.slice(1).split('-');
+if(hd)document.querySelector(`#dsel [data-d=${hd}]`)?.click();
+if(ht)document.querySelector(`#tsel [data-t=${ht}]`)?.click();
+if(ho)setOv(ho);
+</script>
+</body>
+</html>
