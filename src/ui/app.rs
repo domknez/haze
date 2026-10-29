@@ -74,6 +74,8 @@ pub enum Act {
     /// A source checked and ready to save, with what it offers.
     SourceSaved(Source, Box<Catalog>),
     AudioTrack(usize),
+    /// Show the subtitle track at this stream index, or none.
+    SubtitleTrack(Option<usize>),
     Seek(f64),
     Toast(String),
 }
@@ -104,6 +106,8 @@ pub struct App {
     pub marks_serial: u64,
     last_motion: Instant,
     last_pointer: Option<egui::Pos2>,
+    /// The panels over the picture showed last frame (subtitles keep clear of them).
+    pub controls_shown: bool,
     /// The search field should take the keyboard.
     pub focus_search: bool,
     /// Resume the last channel once the catalog is in.
@@ -167,6 +171,7 @@ impl App {
             last_motion: Instant::now(),
             last_pointer: None,
             focus_search: false,
+            controls_shown: true,
             anchors: Default::default(),
             applied_dark: None,
             remote,
@@ -615,11 +620,36 @@ impl App {
                 acts.push(Act::Seek(-10.0));
             }
         });
-        // Files dropped on the window: playlists to add.
+        // Files dropped on the window: subtitles for what plays, or playlists to add.
         let dropped: Vec<_> =
             ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         if let Some(path) = dropped.into_iter().next() {
-            self.form = Some(SourceForm::for_file(&path.to_string_lossy()));
+            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+            if matches!(ext.as_deref(), Some("srt" | "vtt")) {
+                self.subtitles_from(&path);
+            } else {
+                self.form = Some(SourceForm::for_file(&path.to_string_lossy()));
+            }
+        }
+    }
+
+    /// Show the subtitles in a file over the movie or episode playing.
+    fn subtitles_from(&mut self, path: &std::path::Path) {
+        let Some(player) = self.session.player.as_ref().filter(|_| self.session.recording_key().is_some()) else {
+            self.show_toast("Subtitles go with a movie or an episode: start one, then drop the file");
+            return;
+        };
+        let cues = std::fs::read(path).map(|b| crate::media::subtitle::parse_srt(&crate::media::subtitle::decode_text(&b)));
+        match cues {
+            Ok(cues) if !cues.is_empty() => {
+                let n = cues.len();
+                player.use_subtitles(cues, self.session.start_pts.unwrap_or(0.0));
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                log_info!("subtitles: {n} lines from {name}");
+                self.show_toast(&format!("Subtitles from {name}"));
+            }
+            Ok(_) => self.show_toast("That file has no subtitles in it"),
+            Err(e) => self.show_toast(&format!("Couldn't read the subtitles: {e}")),
         }
     }
 
@@ -731,6 +761,12 @@ impl App {
             Act::AudioTrack(stream) => {
                 if let Some(p) = &self.session.player {
                     p.set_audio_track(stream);
+                }
+                self.popup = None;
+            }
+            Act::SubtitleTrack(stream) => {
+                if let Some(p) = &self.session.player {
+                    p.set_subtitle_track(stream);
                 }
                 self.popup = None;
             }
@@ -893,6 +929,7 @@ impl eframe::App for App {
         if self.sources.is_empty() && self.form.is_none() {
             self.welcome(&ctx, screen, &mut acts);
         } else if self.controls_visible(&ctx) {
+            self.controls_shown = true;
             self.top_bar(&ctx, screen, &mut acts);
             if self.rail_open {
                 self.rail(&ctx, screen, &mut acts);
@@ -900,6 +937,7 @@ impl eframe::App for App {
             self.bottom(&ctx, screen, &mut acts);
             self.popups(&ctx, screen, &mut acts);
         } else {
+            self.controls_shown = false;
             ctx.set_cursor_icon(egui::CursorIcon::None);
         }
         self.toast_view(&ctx, screen);

@@ -65,7 +65,9 @@ Secret Service), never in the settings files.
 - **Zapping:** ↑ ↓ (or Page Up / Down) through the list on screen; the last channel
   comes back on the next start
 - **Live channels reconnect** by themselves when the provider drops the stream
-- **Audio tracks:** pick the language when a channel has several
+- **Audio tracks and subtitles:** pick the language when a channel has several; text
+  subtitles from the stream (SubRip, ASS, WebVTT, MP4 text), or drop an `.srt` on the
+  window (UTF-8 or Windows-1250)
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
   ⌘F to search, ⌘1–5 for the tabs
 
@@ -135,7 +137,8 @@ src/
   `%APPDATA%\haze\` (Windows) or `~/.config/haze/` (Linux): `settings.conf`,
   `sources.json`, `marks.json`, `progress.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
 - `haze probe <url> [seconds]` plays a stream without the window and reports what it is
-  and how it plays (`HAZE_LOG=trace` adds ffmpeg's own messages);
+  and how it plays, with its subtitles if it has any (`HAZE_LOG=trace` adds ffmpeg's
+  own messages);
   `HAZE_NO_HWACCEL=1` decodes in software.
 
 ## License

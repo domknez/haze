@@ -35,6 +35,26 @@ fn glow(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: Color32
     painter.add(egui::Shape::mesh(mesh));
 }
 
+/// Subtitle lines centred over `picture`, their bottom at `bottom`, sized to the
+/// picture, on a dark band so they read over anything.
+fn subtitles(painter: &egui::Painter, text: &str, picture: Rect, bottom: f32) {
+    let size = (picture.height() * 0.045).clamp(15.0, 44.0);
+    let mut job = egui::text::LayoutJob::simple(
+        text.to_string(),
+        egui::FontId::new(size, typography::semibold()),
+        Color32::WHITE,
+        picture.width() * 0.8,
+    );
+    job.halign = egui::Align::Center;
+    let galley = painter.layout_job(job);
+    let pos = egui::pos2(picture.center().x, bottom - galley.size().y);
+    for row in &galley.rows {
+        let r = row.rect().translate(pos.to_vec2()).expand2(vec2(size * 0.35, size * 0.06));
+        painter.rect_filled(r, size * 0.2, Color32::from_black_alpha(165));
+    }
+    painter.galley(pos, galley, Color32::WHITE);
+}
+
 /// How long a message stays.
 const TOAST: Duration = Duration::from_secs(4);
 
@@ -58,6 +78,12 @@ impl App {
             }
             return;
         };
+        if let Some(text) = player.subtitles() {
+            let aspect = player.frame().1.map_or(16.0 / 9.0, |f| f.aspect);
+            let picture = video::fit(area, aspect);
+            let floor = if self.controls_shown { area.bottom() - metrics::BOTTOM - metrics::GAP * 2.0 } else { picture.bottom() };
+            subtitles(ui.painter(), &text, picture, floor.min(picture.bottom()) - picture.height() * 0.04);
+        }
         let center = area.center() - vec2(0.0, 30.0);
         let name = self.playing_name();
         match player.status() {

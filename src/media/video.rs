@@ -40,7 +40,8 @@ pub fn run(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match packet {
-            Packet::Data(p) => {
+            Packet::Data(_, epoch) | Packet::End(epoch) if epoch != shared.epoch.load(Ordering::Relaxed) => continue,
+            Packet::Data(p, _) => {
                 if decoder.send_packet(&p).is_err() {
                     continue;
                 }
@@ -51,7 +52,7 @@ pub fn run(
                 continue;
             }
             Packet::Decoder(..) => continue,
-            Packet::End => {
+            Packet::End(_) => {
                 let _ = decoder.send_eof();
                 ending = true;
             }
@@ -132,6 +133,11 @@ impl Presenter {
                 return;
             }
             let Some(now) = self.shared.clock.now() else {
+                // Without sound the picture keeps the time (after a seek, too).
+                if !self.has_audio {
+                    self.shared.clock.set(frame.pts);
+                    continue;
+                }
                 let since = *self.waiting_since.get_or_insert_with(Instant::now);
                 if since.elapsed() > NO_CLOCK {
                     // No sound after all (or it can't be decoded): run on the wall clock.

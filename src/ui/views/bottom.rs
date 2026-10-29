@@ -154,9 +154,9 @@ impl App {
             }
             _ => {}
         }
-        let tracks = self.session.player.as_ref().map(|pl| pl.info().audio_tracks.len()).unwrap_or(0);
-        if tracks > 1 {
-            let r = widgets::icon_button(ui, Icon::Audio, 34.0, p.dim, "Audio track");
+        let info = self.session.player.as_ref().map(|pl| pl.info()).unwrap_or_default();
+        if info.audio_tracks.len() > 1 || !info.subtitle_tracks.is_empty() {
+            let r = widgets::icon_button(ui, Icon::Audio, 34.0, p.dim, "Sound and subtitles");
             self.anchor(Popup::AudioTracks, r.rect);
             if r.clicked() {
                 acts.push(Act::Popup(Some(Popup::AudioTracks)));

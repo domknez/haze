@@ -34,12 +34,31 @@ impl Command {
 }
 
 fn probe(url: &str, seconds: u64) {
-    let request = Request { url: url.to_string(), user_agent: None, referrer: None, live: true };
+    // A file on disk is a recording; anything else is taken for a live channel.
+    let live = !std::path::Path::new(url).is_file();
+    let request = Request { url: url.to_string(), user_agent: None, referrer: None, live };
     let player = Player::open(request, Output::Local, 0.3, || {});
     let start = Instant::now();
     let mut last = (0, Status::Opening);
+    let (mut subtitles_on, mut said) = (false, None);
     while start.elapsed() < Duration::from_secs(seconds) {
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(250));
+        // The first subtitle track with text, shown as it goes.
+        if !subtitles_on && let Some(track) = player.info().subtitle_tracks.first() {
+            println!("subtitles: {}", track.label);
+            player.set_subtitle_track(Some(track.stream));
+            subtitles_on = true;
+        }
+        let line = player.subtitles();
+        if line.is_some() && line != said {
+            println!(
+                "{:5.1}s subtitle at {:.2}: {}",
+                start.elapsed().as_secs_f32(),
+                player.position().unwrap_or(0.0),
+                line.as_deref().unwrap_or("").replace('\n', " / ")
+            );
+        }
+        said = line;
         let (serial, frame) = player.frame();
         let status = player.status();
         if status != last.1 || serial != last.0 {

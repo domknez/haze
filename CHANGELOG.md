@@ -19,6 +19,8 @@ The first version of haze:
   playlists; the next episode starts on its own
 - Movies and episodes carry on where they were left; a bar shows how much of each
   was watched and a tick the ones seen
+- Subtitles: text tracks from the stream, or an `.srt` / `.vtt` file dropped on the
+  window
 - AirPlay 2 and AirPlay 1 output with lip sync, the speaker's buttons, media keys and
   Now Playing; a picture delay per output
 - Channel names read cleanly: the raised letters providers tag them with (`ᶠʰᵈ`,

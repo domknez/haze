@@ -167,12 +167,32 @@ impl App {
     fn tracks_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let Some(player) = &self.session.player else { return };
         let info = player.info();
-        heading(ui, "Audio");
-        for (i, t) in info.audio_tracks.iter().enumerate() {
-            if menu_row(ui, Icon::Audio, &t.label, None, info.audio_track == Some(i)).clicked() {
-                acts.push(Act::AudioTrack(t.stream));
+        if info.audio_tracks.len() > 1 {
+            heading(ui, "Audio");
+            for (i, t) in info.audio_tracks.iter().enumerate() {
+                if menu_row(ui, Icon::Audio, &t.label, None, info.audio_track == Some(i)).clicked() {
+                    acts.push(Act::AudioTrack(t.stream));
+                }
             }
         }
+        if !info.subtitle_tracks.is_empty() {
+            if info.audio_tracks.len() > 1 {
+                ui.add_space(6.0);
+            }
+            heading(ui, "Subtitles");
+            if menu_row(ui, Icon::Close, "Off", None, info.subtitle_track.is_none()).clicked() {
+                acts.push(Act::SubtitleTrack(None));
+            }
+            for (i, t) in info.subtitle_tracks.iter().enumerate() {
+                if menu_row(ui, Icon::List, &t.label, None, info.subtitle_track == Some(i)).clicked() {
+                    acts.push(Act::SubtitleTrack(Some(t.stream)));
+                }
+            }
+        }
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Drop an .srt file on the window for subtitles of your own").font(typography::meta()).color(colors().faint),
+        );
     }
 
     fn settings_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {

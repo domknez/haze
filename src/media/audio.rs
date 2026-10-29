@@ -74,7 +74,8 @@ pub fn run(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match packet {
-            Packet::Data(p) => {
+            Packet::Data(_, epoch) | Packet::End(epoch) if epoch != feeder.shared.epoch.load(Ordering::Relaxed) => continue,
+            Packet::Data(p, _) => {
                 if decoder.send_packet(&p).is_err() {
                     continue;
                 }
@@ -89,7 +90,7 @@ pub fn run(
                 resampler = None;
                 continue;
             }
-            Packet::End => {
+            Packet::End(_) => {
                 let _ = decoder.send_eof();
                 ending = true;
             }

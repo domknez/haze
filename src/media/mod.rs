@@ -9,6 +9,7 @@ mod demux;
 pub mod frame;
 mod hls;
 mod hwaccel;
+pub mod subtitle;
 mod video;
 
 use crate::output::Output;
@@ -53,6 +54,10 @@ pub struct StreamInfo {
     pub audio_track: Option<usize>,
     /// Length in seconds, for recordings.
     pub duration: Option<f64>,
+    /// Subtitle tracks with text in them.
+    pub subtitle_tracks: Vec<Track>,
+    /// Index into `subtitle_tracks` of the one shown, if any.
+    pub subtitle_track: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -85,6 +90,8 @@ pub struct Shared {
     /// A problem worth telling about that didn't stop playback (e.g. the speaker
     /// couldn't be reached, so sound plays here).
     notice: Mutex<Option<String>>,
+    /// The subtitles of the track shown, or of a file.
+    cues: Mutex<subtitle::Cues>,
     repaint: Box<dyn Fn() + Send + Sync>,
 }
 
@@ -133,6 +140,8 @@ enum AudioCmd {
 enum DemuxCmd {
     Seek(f64),
     AudioTrack(usize),
+    /// Show the subtitle track at this stream index, or none.
+    Subtitles(Option<usize>),
 }
 
 /// A stream being played. Dropping it stops playback.
@@ -158,6 +167,7 @@ impl Player {
             picture_delay_ms: AtomicI32::new(0),
             resume_at: Mutex::new(None),
             notice: Mutex::new(None),
+            cues: Mutex::default(),
             repaint: Box::new(repaint),
         });
         let (audio_tx, audio_rx) = channel();
@@ -223,6 +233,26 @@ impl Player {
 
     pub fn set_audio_track(&self, stream: usize) {
         let _ = self.demux.send(DemuxCmd::AudioTrack(stream));
+    }
+
+    /// Show the subtitle track at stream index `stream`, or none.
+    pub fn set_subtitle_track(&self, stream: Option<usize>) {
+        let _ = self.demux.send(DemuxCmd::Subtitles(stream));
+    }
+
+    /// Show the subtitles of a file, `offset` seconds in (where the stream's time
+    /// starts), in place of a track's.
+    pub fn use_subtitles(&self, cues: Vec<subtitle::Cue>, offset: f64) {
+        let _ = self.demux.send(DemuxCmd::Subtitles(None));
+        let shifted = cues.into_iter().map(|c| subtitle::Cue { start: c.start + offset, end: c.end + offset, ..c }).collect();
+        self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).replace(shifted);
+        (self.shared.repaint)();
+    }
+
+    /// The subtitles on screen now.
+    pub fn subtitles(&self) -> Option<String> {
+        let t = self.position()?;
+        self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).at(t)
     }
 }
 
