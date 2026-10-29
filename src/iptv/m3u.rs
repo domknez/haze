@@ -314,6 +314,7 @@ impl Entry {
                 year: super::xtream::year_in(show),
                 group: group.clone(),
                 rating: None,
+                plot: None,
                 episodes: Vec::new(),
             });
             series.len() - 1

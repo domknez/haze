@@ -203,6 +203,29 @@ impl App {
         if click.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Back to the series").clicked() {
             acts.push(Act::OpenSeries(None));
         }
+        let about: Vec<String> =
+            [series.year.map(|y| y.to_string()), series.rating.map(|r| format!("★ {r:.1}"))].into_iter().flatten().collect();
+        if series.plot.is_none() && about.is_empty() {
+            return;
+        }
+        let mut job = egui::text::LayoutJob::default();
+        if !about.is_empty() {
+            let line = about.join(" · ") + if series.plot.is_some() { "\n" } else { "" };
+            job.append(&line, 0.0, egui::TextFormat::simple(typography::meta(), p.faint));
+        }
+        if let Some(plot) = &series.plot {
+            job.append(plot, 0.0, egui::TextFormat::simple(typography::secondary(), p.dim));
+        }
+        job.wrap =
+            egui::text::TextWrapping { max_width: width - 16.0, max_rows: 5, break_anywhere: false, overflow_character: Some('…') };
+        let galley = ui.painter().layout_job(job);
+        let (r, resp) = ui.allocate_exact_size(vec2(width, galley.size().y + 10.0), Sense::hover());
+        ui.painter().galley(pos2(r.left() + 8.0, r.top() + 2.0), galley.clone(), p.dim);
+        if galley.elided
+            && let Some(plot) = &series.plot
+        {
+            resp.on_hover_text(plot);
+        }
     }
 
     pub fn play_act(&self, index: usize) -> Act {

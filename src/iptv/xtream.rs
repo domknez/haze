@@ -227,6 +227,7 @@ fn series(v: &Value, groups: &[(String, String)]) -> Option<Series> {
         poster: string(&v["cover"]).filter(|s| s.starts_with("http")),
         group: group_name(&v["category_id"], groups),
         rating: string(&v["rating"]).and_then(|r| r.parse::<f32>().ok()).filter(|r| *r > 0.0),
+        plot: string(&v["plot"]).map(|p| p.trim().to_string()).filter(|p| !p.is_empty()),
         episodes: Vec::new(),
     })
 }

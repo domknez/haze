@@ -86,6 +86,8 @@ pub struct Series {
     pub group: String,
     pub rating: Option<f32>,
     pub year: Option<u32>,
+    /// What it's about (Xtream).
+    pub plot: Option<String>,
     /// In season order. Playlists list every episode; Xtream providers give them
     /// when the series is opened (see `xtream::Login::episodes`).
     pub episodes: Vec<Episode>,
