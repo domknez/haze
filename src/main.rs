@@ -6,9 +6,14 @@
 #[macro_use]
 mod log;
 mod awake;
+mod cli;
 mod iptv;
+mod media;
 mod output;
 
 fn main() {
     log::install_panic_hook();
+    if let Some(command) = cli::Command::parse(std::env::args().skip(1)) {
+        command.run();
+    }
 }
