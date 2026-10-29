@@ -67,6 +67,8 @@ pub struct Prefs {
     pub muted: bool,
     /// Picture delay per output (by name), in milliseconds.
     pub picture_delays: BTreeMap<String, i32>,
+    /// The hash of the PIN asked before hidden groups show, if one is set.
+    pub pin: Option<String>,
     /// The settings file changes are saved to; None keeps them in memory.
     file: Option<PathBuf>,
 }
@@ -96,6 +98,7 @@ impl Prefs {
                 .and_then(|v| v.as_object().cloned())
                 .map(|o| o.into_iter().filter_map(|(k, v)| Some((k, i32::try_from(v.as_i64()?).ok()?))).collect())
                 .unwrap_or_default(),
+            pin: get("pin").map(str::to_string),
             file: None,
         }
     }
@@ -118,7 +121,7 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 9] {
+    fn values(&self) -> [(&'static str, String); 10] {
         let delays: serde_json::Map<String, serde_json::Value> =
             self.picture_delays.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
         [
@@ -131,6 +134,7 @@ impl Prefs {
             ("output", self.output.clone().unwrap_or_default()),
             ("volume", format!("{:.3}", self.volume)),
             ("muted", if self.muted { "true" } else { "false" }.into()),
+            ("pin", self.pin.clone().unwrap_or_default()),
         ]
     }
 }
@@ -155,7 +159,7 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\npin=ab12\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {

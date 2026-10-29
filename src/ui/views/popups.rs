@@ -216,6 +216,15 @@ impl App {
             if menu_row(ui, Icon::List, "Show hidden groups", Some(&sub), self.browse.show_hidden).clicked() {
                 acts.push(Act::ShowHidden(!self.browse.show_hidden));
             }
+            let locked = self.prefs.pin.is_some();
+            let (title, sub) = if locked {
+                ("Remove the PIN", "Hidden groups show without one")
+            } else {
+                ("Lock with a PIN", "Asked before hidden groups show")
+            };
+            if menu_row(ui, Icon::Key, title, Some(sub), false).clicked() {
+                acts.push(Act::Pin(!locked));
+            }
         }
         ui.add_space(6.0);
         heading(ui, "Keys");

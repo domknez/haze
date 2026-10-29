@@ -3,6 +3,7 @@
 pub mod add_source;
 mod bottom;
 mod guide;
+pub mod pin;
 mod popups;
 mod rail;
 mod stage;

@@ -52,7 +52,8 @@ Secret Service), never in the settings files.
   light themes (or follow the system)
 - **Channel list:** logos, numbers, what's on now and how far along it is; groups,
   search, **favourites** (right-click a channel, or the star) and **recently watched**;
-  hide the groups you never watch (right-click one), out of lists, search and zapping
+  hide the groups you never watch (right-click one), out of lists, search and zapping,
+  behind a PIN if you like
 - **Guide:** XMLTV (gzipped or not, read as a stream so huge provider guides stay
   light), the programme on now with its progress and a strip of what's next, and the
   **full guide** (G): the group's channels against the time, half a day back and a

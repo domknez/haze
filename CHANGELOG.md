@@ -9,7 +9,7 @@ The first version of haze:
 - Live channels with logos, groups, search, favourites and recently watched; zapping
   with ↑ ↓, the last channel back on the next start, reconnecting when a stream drops
 - Hide groups (right-click one): they leave the lists, search and zapping until
-  Settings › Show hidden groups, which lasts until haze quits
+  Settings › Show hidden groups, which lasts until haze quits; a PIN can lock them
 - Guide (XMLTV) with the programme on now and what's next, the full guide (G) with
   the group's channels against the time, and catch-up from the archive (Xtream, and
   M3U `catchup` modes)

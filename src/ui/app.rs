@@ -10,6 +10,7 @@ use super::session::{Next, Session};
 use super::style::{self, colors, metrics};
 use super::video::Video;
 use super::views::add_source::SourceForm;
+use super::views::pin::{Outcome as PinOutcome, PinDialog, Purpose as PinPurpose};
 use crate::iptv::model::{Catalog, Channel, Guide, Programme, Shelf};
 use crate::iptv::time;
 use crate::library::{self, Marks, Progress, Source};
@@ -53,8 +54,10 @@ pub enum Act {
     Shelve(String, Option<Shelf>),
     /// Hide a group (true) or show it again.
     Hide(String, bool),
-    /// Show hidden groups, or hide them again.
+    /// Show hidden groups (asking for the PIN, if one is set), or hide them again.
     ShowHidden(bool),
+    /// Set a PIN for hidden groups, or remove it (asking for it).
+    Pin(bool),
     SwitchSource(usize),
     Popup(Option<Popup>),
     Output(Output),
@@ -107,6 +110,7 @@ pub struct App {
     pub groups_open: bool,
     pub popup: Option<Popup>,
     pub form: Option<SourceForm>,
+    pub pin: Option<super::views::pin::PinDialog>,
     pub toast: Option<(String, Instant)>,
     /// Bumped when favourites or recents change.
     pub marks_serial: u64,
@@ -174,6 +178,7 @@ impl App {
             groups_open: true,
             popup: None,
             form: None,
+            pin: None,
             toast: None,
             marks_serial: 0,
             last_motion: Instant::now(),
@@ -383,7 +388,7 @@ impl App {
     /// the pointer has been still for a while.
     fn controls_visible(&self, ctx: &egui::Context) -> bool {
         let playing = self.session.player.as_ref().is_some_and(|p| p.status() == Status::Playing && !p.paused());
-        if !playing || self.popup.is_some() || self.form.is_some() || self.focus_search {
+        if !playing || self.popup.is_some() || self.form.is_some() || self.pin.is_some() || self.focus_search {
             return true;
         }
         let idle = self.last_motion.elapsed().as_secs_f32();
@@ -575,9 +580,10 @@ impl App {
         ctx.input_mut(|i| {
             let cmd = Modifiers::COMMAND;
             if i.consume_key(Modifiers::NONE, Key::Escape) {
-                if self.popup.is_some() || self.form.is_some() {
+                if self.popup.is_some() || self.form.is_some() || self.pin.is_some() {
                     acts.push(Act::Popup(None));
                     self.form = None;
+                    self.pin = None;
                 } else if self.guide_open {
                     acts.push(Act::ToggleGuide);
                 } else if i.viewport().fullscreen == Some(true) {
@@ -710,11 +716,16 @@ impl App {
             Act::Shelve(group, shelf) => self.shelve(ctx, group, shelf),
             Act::Hide(group, hide) => self.hide(group, hide),
             Act::ShowHidden(show) => {
-                self.browse.show_hidden = show;
                 self.popup = None;
-                if let Some(c) = self.catalog.ready() {
-                    self.browse.count_groups(c);
+                if show && self.prefs.pin.is_some() {
+                    self.pin = Some(PinDialog::new(PinPurpose::Unlock));
+                } else {
+                    self.show_hidden(show);
                 }
+            }
+            Act::Pin(set) => {
+                self.popup = None;
+                self.pin = Some(PinDialog::new(if set { PinPurpose::Set } else { PinPurpose::Remove }));
             }
             Act::ToggleGroups => self.groups_open = !self.groups_open,
             Act::SwitchSource(i) => {
@@ -842,6 +853,29 @@ impl App {
         self.show_toast(&format!("{group} now shows {place}"));
     }
 
+    fn show_hidden(&mut self, show: bool) {
+        self.browse.show_hidden = show;
+        if let Some(c) = self.catalog.ready() {
+            self.browse.count_groups(c);
+        }
+    }
+
+    /// The PIN dialog's answer.
+    fn pin_done(&mut self, purpose: PinPurpose, hash: Option<String>) {
+        match purpose {
+            PinPurpose::Unlock => self.show_hidden(true),
+            PinPurpose::Set => {
+                self.prefs.update(|p| p.pin = hash);
+                self.show_hidden(false);
+                self.show_toast("Hidden groups are locked with the PIN");
+            }
+            PinPurpose::Remove => {
+                self.prefs.update(|p| p.pin = None);
+                self.show_toast("Hidden groups show without a PIN now");
+            }
+        }
+    }
+
     fn hide(&mut self, group: String, hide: bool) {
         let Some(source) = self.active.and_then(|i| self.sources.get_mut(i)) else { return };
         if hide {
@@ -967,6 +1001,17 @@ impl eframe::App for App {
             && form.show(&ctx, screen) == Some(false)
         {
             self.form = None;
+        }
+        if let Some(dialog) = &mut self.pin {
+            match dialog.show(&ctx, screen, self.prefs.pin.as_deref()) {
+                PinOutcome::Open => {}
+                PinOutcome::Cancelled => self.pin = None,
+                PinOutcome::Done(hash) => {
+                    let purpose = dialog.purpose;
+                    self.pin = None;
+                    self.pin_done(purpose, hash);
+                }
+            }
         }
         for act in acts {
             self.apply(&ctx, act);
