@@ -48,6 +48,10 @@ impl App {
                 (programme.title.clone(), format!("{name} · from the archive · {}", clock_range(programme)))
             }
             Some(Playing::Movie { .. }) => (name.clone(), "Movie".to_string()),
+            Some(Playing::Episode { episode, .. }) => {
+                let title = if episode.title.is_empty() { name.clone() } else { episode.title.clone() };
+                (title, format!("{name} · {}", episode.code()))
+            }
             _ => {
                 let now = channel.as_ref().and_then(|c| self.now_on(c)).cloned();
                 let group = channel.as_ref().map(|c| c.group.clone()).unwrap_or_default();

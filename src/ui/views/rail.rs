@@ -11,8 +11,7 @@ use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
 impl App {
     /// Whether the column of groups shows beside the channels.
     pub fn shows_groups(&self) -> bool {
-        let groups = if self.tab == Tab::Movies { self.movie_group_counts.len() } else { self.group_counts.len() };
-        self.groups_open && matches!(self.tab, Tab::Live | Tab::Movies) && groups > 1
+        self.groups_open && matches!(self.tab, Tab::Live | Tab::Movies | Tab::Series) && self.browse_counts().len() > 1
     }
 
     /// How wide the rail is now.
@@ -61,30 +60,29 @@ impl App {
     /// The groups: a filter when there are many, then every group with its count.
     fn groups_column(&mut self, ui: &mut egui::Ui, width: f32, acts: &mut Vec<Act>) {
         let p = colors();
-        let movies = self.tab == Tab::Movies;
+        let library = matches!(self.tab, Tab::Movies | Tab::Series);
         ui.horizontal(|ui| {
             ui.set_height(34.0);
             ui.add_space(6.0);
-            ui.label(egui::RichText::new(if movies { "CATEGORIES" } else { "GROUPS" }).font(typography::meta()).color(p.faint));
+            ui.label(egui::RichText::new(if library { "CATEGORIES" } else { "GROUPS" }).font(typography::meta()).color(p.faint));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if widgets::icon_button(ui, Icon::Close, 26.0, p.faint, "Hide the groups").clicked() {
                     acts.push(Act::ToggleGroups);
                 }
             });
         });
-        let counts = if movies { &self.movie_group_counts } else { &self.group_counts };
-        if counts.len() > 12 {
+        if self.browse_counts().len() > 12 {
             widgets::filter_field(ui, &mut self.group_filter, "Filter groups", width);
             ui.add_space(4.0);
         }
-        let current = if movies { self.movie_group.clone() } else { self.group.clone() };
+        let current = self.browse_group().clone();
         let needle = self.group_filter.trim().to_lowercase();
-        let counts = if movies { &self.movie_group_counts } else { &self.group_counts };
+        let counts = self.browse_counts();
         let total: usize = counts.iter().map(|(_, n)| n).sum();
         let shown: Vec<&(String, usize)> = counts.iter().filter(|(g, _)| needle.is_empty() || g.to_lowercase().contains(&needle)).collect();
-        let all = if movies { "All movies" } else { "All channels" };
+        let all = all_label(self.tab);
         let mut chosen = None;
-        egui::ScrollArea::vertical().id_salt(("groups", movies)).auto_shrink([false, false]).show_rows(
+        egui::ScrollArea::vertical().id_salt(("groups", self.tab)).auto_shrink([false, false]).show_rows(
             ui,
             metrics::GROUP_ROW,
             shown.len() + 1,
@@ -119,16 +117,18 @@ impl App {
             acts.push(self.play_act(first));
         }
         ui.add_space(4.0);
+        if let Some(i) = self.open_series {
+            self.series_header(ui, width, i, acts);
+            return;
+        }
         // What's listed: the group (click to show the column of groups) and how many.
-        let browsing = matches!(self.tab, Tab::Live | Tab::Movies);
-        let group = if self.tab == Tab::Movies { self.movie_group.clone() } else { self.group.clone() };
-        let label = match (browsing, group) {
+        let browsing = matches!(self.tab, Tab::Live | Tab::Movies | Tab::Series);
+        let label = match (browsing, self.browse_group().clone()) {
             (true, Some(g)) => g,
-            (true, None) if self.tab == Tab::Movies => "All movies".into(),
-            (true, None) => "All channels".into(),
+            (true, None) => all_label(self.tab).into(),
             (false, _) => self.tab.label().into(),
         };
-        let can_open = browsing && !self.shows_groups() && self.group_counts.len() + self.movie_group_counts.len() > 1;
+        let can_open = browsing && !self.shows_groups() && self.browse_counts().len() > 1;
         let (r, click) = ui.allocate_exact_size(vec2(width, 30.0), if can_open { Sense::click() } else { Sense::hover() });
         if can_open && click.hovered() {
             ui.painter().rect_filled(r, CornerRadius::same(9), p.hl);
@@ -152,9 +152,36 @@ impl App {
         }
     }
 
+    /// The way back to the series, then the open one's name and how many episodes.
+    fn series_header(&self, ui: &mut egui::Ui, width: f32, index: usize, acts: &mut Vec<Act>) {
+        let p = colors();
+        let Some(series) = self.catalog.ready().and_then(|c| c.series.get(index)) else { return };
+        let (r, click) = ui.allocate_exact_size(vec2(width, 30.0), Sense::click());
+        if click.hovered() {
+            ui.painter().rect_filled(r, CornerRadius::same(9), p.hl);
+        }
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.left() + 14.0, r.center().y), vec2(12.0, 12.0)), Icon::Prev, p.dim);
+        let x = r.left() + 28.0;
+        let text = widgets::ellipsize(ui, &series.name, typography::small_strong(), p.text, r.right() - x - 60.0);
+        ui.painter().galley(pos2(x, r.center().y - text.size().y / 2.0), text, p.text);
+        if !self.episodes.is_loading() {
+            let n = self.list.len();
+            let count = if n == 1 { "1 episode".to_string() } else { format!("{n} episodes") };
+            ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count, typography::meta(), p.faint);
+        }
+        if click.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Back to the series").clicked() {
+            acts.push(Act::OpenSeries(None));
+        }
+    }
+
     pub fn play_act(&self, index: usize) -> Act {
         let Some(c) = self.catalog.ready() else { return Act::Toast(String::new()) };
-        if self.tab == Tab::Movies { Act::PlayMovie(c.movies[index].key.clone()) } else { Act::PlayChannel(c.channels[index].key.clone()) }
+        match self.tab {
+            Tab::Movies => Act::PlayMovie(c.movies[index].key.clone()),
+            Tab::Series if self.open_series.is_some() => Act::PlayEpisode(index),
+            Tab::Series => Act::OpenSeries(Some(index)),
+            _ => Act::PlayChannel(c.channels[index].key.clone()),
+        }
     }
 
     fn rail_list(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
@@ -172,12 +199,28 @@ impl App {
             }
             Load::Ready(_) => {}
         }
+        if self.open_series.is_some() {
+            match &self.episodes {
+                Load::Loading(_) | Load::Idle => {
+                    let c = ui.available_rect_before_wrap().center();
+                    widgets::spinner(ui, c, 12.0, p.accent);
+                    return;
+                }
+                Load::Failed(e) => {
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new(format!("The episodes couldn't be loaded: {e}")).font(typography::body()).color(p.danger));
+                    return;
+                }
+                Load::Ready(_) => {}
+            }
+        }
         if self.list.is_empty() {
             ui.add_space(16.0);
             let text = match self.tab {
                 Tab::Favorites => "No favourites yet. Right-click a channel, or press the star while it plays.",
                 Tab::Recent => "Channels you watch show up here.",
                 Tab::Movies if self.catalog.ready().is_some_and(|c| c.movies.is_empty()) => "This source has no movies.",
+                Tab::Series if self.catalog.ready().is_some_and(|c| c.series.is_empty()) => "This source has no series.",
                 _ => "Nothing matches.",
             };
             ui.label(egui::RichText::new(text).font(typography::body()).color(p.dim));
@@ -185,14 +228,15 @@ impl App {
         }
         let playing = self.playing.as_ref().map(|pl| pl.key().to_string());
         let list = std::mem::take(&mut self.list);
-        let movies = self.tab == Tab::Movies;
-        let area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("rail", self.tab, self.group.clone()));
+        let salt = ("rail", self.tab, self.browse_group().clone(), self.open_series);
+        let area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(salt);
         area.show_rows(ui, metrics::CHANNEL_ROW, list.len(), |ui, range| {
             for &index in &list[range] {
-                if movies {
-                    self.movie_row(ui, index, playing.as_deref(), acts);
-                } else {
-                    self.channel_row(ui, index, playing.as_deref(), acts);
+                match self.tab {
+                    Tab::Movies => self.movie_row(ui, index, playing.as_deref(), acts),
+                    Tab::Series if self.open_series.is_some() => self.episode_row(ui, index, playing.as_deref(), acts),
+                    Tab::Series => self.series_row(ui, index, acts),
+                    _ => self.channel_row(ui, index, playing.as_deref(), acts),
                 }
             }
         });
@@ -256,35 +300,83 @@ impl App {
     }
 
     fn movie_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
-        let p = colors();
         let Some(catalog) = self.catalog.ready() else { return };
         let movie = catalog.movies[index].clone();
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
+        let meta = [movie.year.map(|y| y.to_string()), movie.rating.map(|r| format!("★ {r:.1}")), Some(movie.group.clone())];
         let on = playing == Some(movie.key.as_str());
+        // The year shows below; `Dune (2021)` reads as `Dune`.
+        let name = movie.year.and_then(|y| movie.name.strip_suffix(&format!(" ({y})"))).unwrap_or(&movie.name);
+        if self.poster_row(ui, name, movie.poster.as_deref(), &meta, on).clicked() {
+            acts.push(Act::PlayMovie(movie.key.clone()));
+        }
+    }
+
+    fn series_row(&mut self, ui: &mut egui::Ui, index: usize, acts: &mut Vec<Act>) {
+        let Some(catalog) = self.catalog.ready() else { return };
+        let series = catalog.series[index].clone();
+        let episodes = match series.episodes.len() {
+            0 => None,
+            1 => Some("1 episode".to_string()),
+            n => Some(format!("{n} episodes")),
+        };
+        let meta = [series.year.map(|y| y.to_string()), series.rating.map(|r| format!("★ {r:.1}")), episodes, Some(series.group.clone())];
+        if self.poster_row(ui, &series.name, series.poster.as_deref(), &meta, false).clicked() {
+            acts.push(Act::OpenSeries(Some(index)));
+        }
+    }
+
+    /// A movie or series: its poster, name, and a line of what's known about it.
+    fn poster_row(&mut self, ui: &mut egui::Ui, name: &str, poster: Option<&str>, meta: &[Option<String>], on: bool) -> egui::Response {
+        let p = colors();
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
         if on || resp.hovered() {
             ui.painter().rect_filled(rect, CornerRadius::same(11), if on { p.hl_strong } else { p.hl });
         }
-        let poster = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 5.0), vec2(30.0, metrics::CHANNEL_ROW - 10.0));
-        let tex = movie.poster.as_deref().and_then(|u| self.logos.get(u));
-        match tex {
+        let frame = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top() + 5.0), vec2(30.0, metrics::CHANNEL_ROW - 10.0));
+        match poster.and_then(|u| self.logos.get(u)) {
             Some((t, _)) => {
-                ui.painter().image(t, poster, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+                ui.painter().image(t, frame, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
             }
-            None => widgets::logo_tile(ui.painter(), poster, &movie.name, None, None),
+            None => widgets::logo_tile(ui.painter(), frame, name, None, None),
         }
-        let x = poster.right() + 12.0;
+        let x = frame.right() + 12.0;
         let w = rect.right() - x - 8.0;
-        let title = widgets::ellipsize(ui, &movie.name, typography::item(), p.text, w);
+        let title = widgets::ellipsize(ui, name, typography::item(), p.text, w);
         ui.painter().galley(pos2(x, rect.center().y - title.size().y + 1.0), title, p.text);
-        let meta: Vec<String> = [movie.year.map(|y| y.to_string()), movie.rating.map(|r| format!("★ {r:.1}")), Some(movie.group.clone())]
-            .into_iter()
-            .flatten()
-            .collect();
+        let meta: Vec<&str> = meta.iter().flatten().map(String::as_str).collect();
         let sub = widgets::ellipsize(ui, &meta.join(" · "), typography::secondary(), p.dim, w);
         ui.painter().galley(pos2(x, rect.center().y + 2.0), sub, p.dim);
-        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            acts.push(Act::PlayMovie(movie.key.clone()));
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    }
+
+    fn episode_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
+        let p = colors();
+        let Some(episode) = self.episodes.ready().and_then(|l| l.get(index)) else { return };
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
+        let on = playing == Some(episode.key.as_str());
+        if on || resp.hovered() {
+            ui.painter().rect_filled(rect, CornerRadius::same(11), if on { p.hl_strong } else { p.hl });
         }
+        let x = rect.left() + 14.0;
+        let w = rect.right() - x - 8.0;
+        let title = if episode.title.is_empty() { format!("Episode {}", episode.number) } else { episode.title.clone() };
+        let title = widgets::ellipsize(ui, &title, typography::item(), p.text, w);
+        ui.painter().galley(pos2(x, rect.center().y - title.size().y + 1.0), title, p.text);
+        let code = format!("Season {} · Episode {}", episode.season, episode.number);
+        let sub = widgets::ellipsize(ui, &code, typography::secondary(), if on { p.accent } else { p.dim }, w);
+        ui.painter().galley(pos2(x, rect.center().y + 2.0), sub, p.dim);
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            acts.push(Act::PlayEpisode(index));
+        }
+    }
+}
+
+/// The first row of the groups: everything the tab has.
+fn all_label(tab: Tab) -> &'static str {
+    match tab {
+        Tab::Movies => "All movies",
+        Tab::Series => "All series",
+        _ => "All channels",
     }
 }
 

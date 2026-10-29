@@ -3,7 +3,7 @@
 //! video library; streams, the guide and the archive have URLs of their own.
 
 use super::http::{self, Error, encode};
-use super::model::{Account, Catalog, Catchup, CatchupKind, Channel, Movie};
+use super::model::{Account, Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series};
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +50,10 @@ impl Login {
         format!("{}/{stream_id}.{extension}", self.path("movie"))
     }
 
+    pub fn episode_url(&self, episode_id: u64, extension: &str) -> String {
+        format!("{}/{episode_id}.{extension}", self.path("series"))
+    }
+
     pub fn guide_url(&self) -> String {
         format!("{}/xmltv.php?username={}&password={}", self.server, encode(&self.user), encode(&self.password))
     }
@@ -93,27 +97,69 @@ impl Login {
         })
     }
 
-    /// The account, live channels and movies.
+    /// The account, live channels, movies and series.
     pub fn catalog(&self) -> Result<Catalog, Error> {
         let account = self.account()?;
         let live_groups = categories(&http::json(&self.api(Some("get_live_categories")))?);
         let channels: Vec<Channel> =
             list(&http::json(&self.api(Some("get_live_streams")))?).filter_map(|v| self.channel(v, &live_groups)).collect();
-        // The video library is a bonus: a provider without one (or failing to list it)
-        // still gives a working catalog.
-        let movies = match (http::json(&self.api(Some("get_vod_categories"))), http::json(&self.api(Some("get_vod_streams")))) {
-            (Ok(cats), Ok(streams)) => {
+        let movies = self.library("vod", |v, groups| self.movie(v, groups));
+        let series = self.library("series", series);
+        let groups = order_groups(&channels, &live_groups);
+        Ok(Catalog {
+            channels,
+            groups,
+            movie_groups: Catalog::groups_of_movies(&movies),
+            movies,
+            series_groups: Catalog::groups_of_series(&series),
+            series,
+            epg_url: Some(self.guide_url()),
+            account: Some(account),
+        })
+    }
+
+    /// One part of the video library (`vod` or `series`). It's a bonus: a provider
+    /// without one, or failing to list it, still gives a working catalog.
+    fn library<T>(&self, kind: &str, read: impl Fn(&Value, &[(String, String)]) -> Option<T>) -> Vec<T> {
+        let streams = if kind == "series" { "get_series".to_string() } else { format!("get_{kind}_streams") };
+        match (http::json(&self.api(Some(&format!("get_{kind}_categories")))), http::json(&self.api(Some(&streams)))) {
+            (Ok(cats), Ok(items)) => {
                 let groups = categories(&cats);
-                list(&streams).filter_map(|v| self.movie(v, &groups)).collect()
+                list(&items).filter_map(|v| read(v, &groups)).collect()
             }
             (Err(e), _) | (_, Err(e)) => {
-                log_warn!("xtream: no video library: {e}");
+                log_warn!("xtream: no {kind} library: {e}");
                 Vec::new()
             }
+        }
+    }
+
+    /// The episodes of a series (its key is the provider's series id).
+    pub fn episodes(&self, series_key: &str) -> Result<Vec<Episode>, Error> {
+        let v = http::json(&format!("{}&series_id={}", self.api(Some("get_series_info")), encode(series_key)))?;
+        // By season (`{"1": [...]}`), or a list of seasons' lists on some panels.
+        let seasons: Vec<&Value> = match &v["episodes"] {
+            Value::Object(m) => m.values().collect(),
+            Value::Array(a) => a.iter().collect(),
+            _ => Vec::new(),
         };
-        let groups = order_groups(&channels, &live_groups);
-        let movie_groups = Catalog::groups_of_movies(&movies);
-        Ok(Catalog { channels, groups, movies, movie_groups, epg_url: Some(self.guide_url()), account: Some(account) })
+        let mut out: Vec<Episode> = seasons
+            .into_iter()
+            .flat_map(|s| if s.is_array() { list(s).collect() } else { vec![s] })
+            .filter_map(|e| {
+                let id = number(&e["id"])?;
+                let ext = string(&e["container_extension"]).unwrap_or_else(|| "mp4".into());
+                Some(Episode {
+                    key: id.to_string(),
+                    season: number(&e["season"]).unwrap_or(1) as u32,
+                    number: number(&e["episode_num"]).unwrap_or(0) as u32,
+                    title: string(&e["title"]).map(|t| t.trim().to_string()).unwrap_or_default(),
+                    url: self.episode_url(id, &ext),
+                })
+            })
+            .collect();
+        out.sort_by_key(|e| (e.season, e.number));
+        Ok(out)
     }
 
     fn channel(&self, v: &Value, groups: &[(String, String)]) -> Option<Channel> {
@@ -155,11 +201,21 @@ impl Login {
     }
 }
 
-impl Catalog {
-    pub fn groups_of_movies(movies: &[Movie]) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
-        movies.iter().filter(|m| seen.insert(m.group.as_str())).map(|m| m.group.clone()).collect()
-    }
+fn series(v: &Value, groups: &[(String, String)]) -> Option<Series> {
+    let name = string(&v["name"])?.trim().to_string();
+    let year = ["year", "releaseDate", "release_date"]
+        .iter()
+        .find_map(|k| string(&v[*k]).and_then(|d| d.get(..4)?.parse().ok()))
+        .or_else(|| year_in(&name));
+    Some(Series {
+        key: number(&v["series_id"])?.to_string(),
+        year,
+        name,
+        poster: string(&v["cover"]).filter(|s| s.starts_with("http")),
+        group: group_name(&v["category_id"], groups),
+        rating: string(&v["rating"]).and_then(|r| r.parse::<f32>().ok()).filter(|r| *r > 0.0),
+        episodes: Vec::new(),
+    })
 }
 
 /// Groups in the provider's category order, keeping only those with channels.
@@ -198,7 +254,7 @@ fn string(v: &Value) -> Option<String> {
 }
 
 /// `Dune (2021)` → 2021.
-fn year_in(name: &str) -> Option<u32> {
+pub fn year_in(name: &str) -> Option<u32> {
     let open = name.rfind('(')?;
     let y: u32 = name[open + 1..].strip_suffix(')').or_else(|| name[open + 1..].get(..4))?.parse().ok()?;
     (1900..2100).contains(&y).then_some(y)
@@ -279,7 +335,7 @@ mod tests {
                     header.clear();
                 }
                 let path = line.split_whitespace().nth(1).unwrap_or("");
-                let action = path.split("action=").nth(1).unwrap_or("");
+                let action = path.split("action=").nth(1).unwrap_or("").split('&').next().unwrap_or("");
                 let body = match action {
                     "" => json!({"user_info": {"auth": auth, "status": "Active", "exp_date": "1800000000", "max_connections": "2", "active_cons": "0"},
                                  "server_info": {"timestamp_now": 1_793_304_000, "time_now": "2026-10-29 21:00:00"}}),
@@ -290,6 +346,12 @@ mod tests {
                     ]),
                     "get_vod_categories" => json!([{"category_id": "7", "category_name": "Films"}]),
                     "get_vod_streams" => json!([{"name": "Dune (2021)", "stream_id": 5, "category_id": "7", "container_extension": "mkv"}]),
+                    "get_series_categories" => json!([{"category_id": "3", "category_name": "Drama"}]),
+                    "get_series" => json!([{"name": "Dark", "series_id": 11, "category_id": "3", "cover": "http://img/dark.jpg", "releaseDate": "2017-12-01"}]),
+                    "get_series_info" => json!({"episodes": {
+                        "2": [{"id": "202", "episode_num": 1, "season": 2, "title": "Beginnings", "container_extension": "mkv"}],
+                        "1": [{"id": "102", "episode_num": "2", "season": 1, "title": "Lies"}, {"id": "101", "episode_num": 1, "season": 1, "title": "Secrets"}]
+                    }}),
                     _ => json!([]),
                 }
                 .to_string();
@@ -313,6 +375,12 @@ mod tests {
         assert_eq!(c.channels[1].url, format!("{}/live/me/pw/42.ts", login.server));
         assert_eq!(c.movies.len(), 1);
         assert_eq!(c.movies[0].url, format!("{}/movie/me/pw/5.mkv", login.server));
+        assert_eq!((c.series[0].key.as_str(), c.series[0].group.as_str(), c.series[0].year), ("11", "Drama", Some(2017)));
+        let episodes = login.episodes(&c.series[0].key).unwrap();
+        let codes: Vec<_> = episodes.iter().map(|e| (e.code(), e.title.as_str())).collect();
+        assert_eq!(codes, [("S1 E1".into(), "Secrets"), ("S1 E2".into(), "Lies"), ("S2 E1".into(), "Beginnings")]);
+        assert_eq!(episodes[2].url, format!("{}/series/me/pw/202.mkv", login.server));
+        assert_eq!(episodes[0].url, format!("{}/series/me/pw/101.mp4", login.server));
         let account = c.account.unwrap();
         assert_eq!((account.expires, account.max_connections, account.server_offset), (Some(1_800_000_000), Some(2), 3600));
         assert_eq!(c.epg_url, Some(login.guide_url()));

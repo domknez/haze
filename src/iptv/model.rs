@@ -76,6 +76,38 @@ pub struct Movie {
     pub year: Option<u32>,
 }
 
+/// A series from a provider's video library.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Series {
+    /// The provider's series id (Xtream), or the group and name (playlists).
+    pub key: String,
+    pub name: String,
+    pub poster: Option<String>,
+    pub group: String,
+    pub rating: Option<f32>,
+    pub year: Option<u32>,
+    /// In season order. Playlists list every episode; Xtream providers give them
+    /// when the series is opened (see `xtream::Login::episodes`).
+    pub episodes: Vec<Episode>,
+}
+
+/// One episode of a series.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Episode {
+    pub key: String,
+    pub season: u32,
+    pub number: u32,
+    pub title: String,
+    pub url: String,
+}
+
+impl Episode {
+    /// `S1 E4`
+    pub fn code(&self) -> String {
+        format!("S{} E{}", self.season, self.number)
+    }
+}
+
 /// Everything a source offers.
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
@@ -84,6 +116,8 @@ pub struct Catalog {
     pub groups: Vec<String>,
     pub movies: Vec<Movie>,
     pub movie_groups: Vec<String>,
+    pub series: Vec<Series>,
+    pub series_groups: Vec<String>,
     /// The guide the playlist points to (`url-tvg` / `x-tvg-url`), if any.
     pub epg_url: Option<String>,
     /// What the provider says about the account (Xtream only).
@@ -93,9 +127,21 @@ pub struct Catalog {
 impl Catalog {
     /// Groups in order of first appearance among `channels`.
     pub fn groups_of(channels: &[Channel]) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
-        channels.iter().filter(|c| seen.insert(c.group.as_str())).map(|c| c.group.clone()).collect()
+        first_seen(channels.iter().map(|c| c.group.as_str()))
     }
+
+    pub fn groups_of_movies(movies: &[Movie]) -> Vec<String> {
+        first_seen(movies.iter().map(|m| m.group.as_str()))
+    }
+
+    pub fn groups_of_series(series: &[Series]) -> Vec<String> {
+        first_seen(series.iter().map(|s| s.group.as_str()))
+    }
+}
+
+fn first_seen<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    names.filter(|n| seen.insert(*n)).map(str::to_string).collect()
 }
 
 /// An Xtream Codes account's status.

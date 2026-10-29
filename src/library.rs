@@ -109,8 +109,11 @@ pub fn fetch(source: &Source) -> Result<Catalog, String> {
         Kind::Playlist { location, epg } => {
             let mut text = String::new();
             std::io::Read::read_to_string(&mut http::open(location).map_err(|e| e.to_string())?, &mut text).map_err(|e| e.to_string())?;
+            if !m3u::looks_like_playlist(&text) {
+                return Err("that address gives a web page or other text, not a playlist".into());
+            }
             let mut c = m3u::parse(&text);
-            if c.channels.is_empty() {
+            if c.channels.is_empty() && c.movies.is_empty() && c.series.is_empty() {
                 return Err("the playlist has no channels".into());
             }
             if epg.is_some() {
@@ -121,11 +124,12 @@ pub fn fetch(source: &Source) -> Result<Catalog, String> {
         Kind::Xtream { .. } => source.login().expect("xtream login").catalog().map_err(|e| e.to_string())?,
     };
     log_info!(
-        "{}: {} channels in {} groups, {} movies ({:.1}s)",
+        "{}: {} channels in {} groups, {} movies, {} series ({:.1}s)",
         source.name,
         catalog.channels.len(),
         catalog.groups.len(),
         catalog.movies.len(),
+        catalog.series.len(),
         started.elapsed().as_secs_f32()
     );
     Ok(catalog)

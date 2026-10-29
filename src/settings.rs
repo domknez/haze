@@ -59,6 +59,8 @@ pub struct Prefs {
     pub channel: Option<String>,
     /// The channel group picked last.
     pub group: Option<String>,
+    /// The tab open last (`live`, `movies`, …).
+    pub tab: Option<String>,
     /// AirPlay speaker (by name) to play on; None for this computer.
     pub output: Option<String>,
     pub volume: f32,
@@ -85,6 +87,7 @@ impl Prefs {
             source: get("source").map(str::to_string),
             channel: get("channel").map(str::to_string),
             group: get("group").map(str::to_string),
+            tab: get("tab").map(str::to_string),
             output: get("output").map(str::to_string),
             volume: get("volume").and_then(|v| v.parse::<f32>().ok()).map_or(0.8, |v| v.clamp(0.0, 1.0)),
             muted: get("muted") == Some("true"),
@@ -115,12 +118,13 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 8] {
+    fn values(&self) -> [(&'static str, String); 9] {
         let delays: serde_json::Map<String, serde_json::Value> =
             self.picture_delays.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
         [
             ("picture_delays", if delays.is_empty() { String::new() } else { serde_json::Value::Object(delays).to_string() }),
             ("group", self.group.clone().unwrap_or_default()),
+            ("tab", self.tab.clone().unwrap_or_default()),
             ("theme", self.theme.key().into()),
             ("source", self.source.clone().unwrap_or_default()),
             ("channel", self.channel.clone().unwrap_or_default()),
@@ -152,7 +156,7 @@ mod tests {
     use super::*;
 
     const SAVED: &str =
-        "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntheme=light\nvolume=0.250\n";
+        "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {

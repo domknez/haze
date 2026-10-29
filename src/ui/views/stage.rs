@@ -98,6 +98,9 @@ impl App {
             crate::ui::app::Playing::Movie { key } => {
                 catalog.and_then(|c| c.movies.iter().find(|m| &m.key == key)).map(|m| m.name.clone()).unwrap_or_default()
             }
+            crate::ui::app::Playing::Episode { series, .. } => {
+                catalog.and_then(|c| c.series.iter().find(|s| &s.key == series)).map(|s| s.name.clone()).unwrap_or_default()
+            }
             _ => self.playing_channel().map(|c| c.name.clone()).unwrap_or_default(),
         }
     }
