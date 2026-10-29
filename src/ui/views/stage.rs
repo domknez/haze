@@ -49,10 +49,10 @@ impl App {
         }
         let p = colors();
         if self.video.has_picture() {
-            let aspect = self.player.as_ref().and_then(|pl| pl.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
+            let aspect = self.session.player.as_ref().and_then(|pl| pl.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
             self.video.paint(ui.painter(), video::fit(area, aspect));
         }
-        let Some(player) = &self.player else {
+        let Some(player) = &self.session.player else {
             if !self.sources.is_empty() {
                 self.idle_backdrop(ui, area);
             }
@@ -72,7 +72,7 @@ impl App {
                 );
             }
             Status::Failed(e) => {
-                let retrying = matches!(self.playing, Some(crate::ui::app::Playing::Live { .. }));
+                let retrying = matches!(self.session.playing, Some(crate::ui::app::Playing::Live { .. }));
                 let text = if retrying { format!("{name}: {e}. Reconnecting…") } else { format!("{name}: {e}") };
                 let bg = Rect::from_center_size(
                     center,
@@ -92,7 +92,7 @@ impl App {
 
     /// What's playing, by name.
     pub fn playing_name(&self) -> String {
-        let Some(playing) = &self.playing else { return String::new() };
+        let Some(playing) = &self.session.playing else { return String::new() };
         let catalog = self.catalog.ready();
         match playing {
             crate::ui::app::Playing::Movie { key } => {

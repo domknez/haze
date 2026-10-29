@@ -1,11 +1,16 @@
 //! The app's state, what happens each frame, and what the viewer's actions do.
 
+pub use super::browse::Tab;
+pub use super::session::Playing;
+
+use super::browse::Browse;
 use super::load::Load;
 use super::logos::Logos;
+use super::session::{Next, Session};
 use super::style::{self, colors, metrics};
 use super::video::Video;
 use super::views::add_source::SourceForm;
-use crate::iptv::model::{Catalog, Channel, Episode, Guide, Programme, Shelf};
+use crate::iptv::model::{Catalog, Channel, Guide, Programme, Shelf};
 use crate::iptv::time;
 use crate::library::{self, Marks, Source};
 use crate::media::{Player, Request, Status};
@@ -14,73 +19,6 @@ use crate::output::airplay::Discovery;
 use crate::settings::{Appearance, Prefs};
 use eframe::egui::{self, Key, Modifiers, ViewportCommand};
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Tab {
-    Live,
-    Favorites,
-    Recent,
-    Movies,
-    Series,
-}
-
-impl Tab {
-    pub const ALL: [Tab; 5] = [Tab::Live, Tab::Favorites, Tab::Recent, Tab::Movies, Tab::Series];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Tab::Live => "Live",
-            Tab::Favorites => "Favorites",
-            Tab::Recent => "Recent",
-            Tab::Movies => "Movies",
-            Tab::Series => "Series",
-        }
-    }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Tab::Live => "live",
-            Tab::Favorites => "favorites",
-            Tab::Recent => "recent",
-            Tab::Movies => "movies",
-            Tab::Series => "series",
-        }
-    }
-
-    fn from_key(k: &str) -> Option<Tab> {
-        Tab::ALL.into_iter().find(|t| t.key() == k)
-    }
-}
-
-/// What's playing.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Playing {
-    Live {
-        key: String,
-    },
-    /// A programme from a channel's archive.
-    Catchup {
-        key: String,
-        programme: Programme,
-    },
-    Movie {
-        key: String,
-    },
-    /// An episode of the series with key `series`.
-    Episode {
-        series: String,
-        episode: Episode,
-    },
-}
-
-impl Playing {
-    pub fn key(&self) -> &str {
-        match self {
-            Playing::Live { key } | Playing::Catchup { key, .. } | Playing::Movie { key } => key,
-            Playing::Episode { episode, .. } => &episode.key,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Popup {
@@ -102,6 +40,8 @@ pub enum Act {
     PlayCatchup(String, Programme),
     GoLive,
     TogglePause,
+    /// Pause (true) or play on (false); nothing when it already is.
+    Pause(bool),
     /// Step through the list on screen: -1 previous, +1 next.
     Step(i32),
     ToggleFavorite(String),
@@ -131,7 +71,6 @@ pub enum Act {
     AudioTrack(usize),
     Seek(f64),
     Toast(String),
-    Retry,
 }
 
 pub struct App {
@@ -141,44 +80,22 @@ pub struct App {
     pub catalog: Load<Catalog>,
     pub guide: Load<Guide>,
     pub marks: Marks,
-    pub player: Option<Player>,
-    pub playing: Option<Playing>,
+    pub session: Session,
     pub video: Video,
     pub logos: Logos,
     pub discovery: Option<Discovery>,
     pub output: Output,
-    pub tab: Tab,
-    pub group: Option<String>,
-    pub movie_group: Option<String>,
-    pub series_group: Option<String>,
-    /// The series whose episodes the rail lists (its index in the catalog), and them.
-    pub open_series: Option<usize>,
-    pub episodes: Load<Vec<Episode>>,
-    pub search: String,
+    pub browse: Browse,
     pub rail_open: bool,
     /// The column of groups beside the channels.
     pub groups_open: bool,
-    /// Narrows the column of groups.
-    pub group_filter: String,
-    /// Each group and how many channels (and movies) it has, counted once per catalog.
-    pub group_counts: Vec<(String, usize)>,
-    pub movie_group_counts: Vec<(String, usize)>,
-    pub series_group_counts: Vec<(String, usize)>,
     pub popup: Option<Popup>,
     pub form: Option<SourceForm>,
     pub toast: Option<(String, Instant)>,
-    /// Indices of what the rail lists, and what they were worked out for.
-    pub list: Vec<usize>,
-    list_key: Option<ListKey>,
     /// Bumped when favourites or recents change.
     pub marks_serial: u64,
     last_motion: Instant,
     last_pointer: Option<egui::Pos2>,
-    /// Reconnect attempts for a live channel that dropped.
-    retries: u32,
-    retry_at: Option<Instant>,
-    /// Stream time of the first frame of a recording, so positions start at 0.
-    pub start_pts: Option<f64>,
     /// The search field should take the keyboard.
     pub focus_search: bool,
     /// Resume the last channel once the catalog is in.
@@ -217,42 +134,26 @@ impl App {
         .map(|server| (server, remote_rx));
         let mut app = App {
             resume: prefs.channel.clone(),
-            tab: prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live),
+            browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
             sources,
             active: None,
             catalog: Load::Idle,
             guide: Load::Idle,
             marks: Marks::load(),
-            player: None,
-            playing: None,
+            session: Session::default(),
             video: Video::new(),
             logos: Logos::new(ctx),
             discovery,
             output: Output::Local,
-            group: None,
-            movie_group: None,
-            series_group: None,
-            open_series: None,
-            episodes: Load::Idle,
-            search: String::new(),
             rail_open: true,
             groups_open: true,
-            group_filter: String::new(),
-            group_counts: Vec::new(),
-            movie_group_counts: Vec::new(),
-            series_group_counts: Vec::new(),
             popup: None,
             form: None,
             toast: None,
-            list: Vec::new(),
-            list_key: None,
             marks_serial: 0,
             last_motion: Instant::now(),
             last_pointer: None,
-            retries: 0,
-            retry_at: None,
-            start_pts: None,
             focus_search: false,
             anchors: Default::default(),
             applied_dark: None,
@@ -278,7 +179,7 @@ impl App {
     }
 
     pub fn playing_channel(&self) -> Option<&Channel> {
-        match &self.playing {
+        match &self.session.playing {
             Some(Playing::Live { key } | Playing::Catchup { key, .. }) => self.channel(key),
             _ => None,
         }
@@ -293,12 +194,7 @@ impl App {
         let Some(source) = self.sources.get(i).cloned() else { return };
         self.active = Some(i);
         self.prefs.update(|p| p.source = Some(source.id.clone()));
-        self.group = None;
-        self.movie_group = None;
-        self.series_group = None;
-        self.open_series = None;
-        self.episodes = Load::Idle;
-        self.list_key = None;
+        self.browse.reset();
         self.guide = Load::Idle;
         match catalog {
             Some(c) => {
@@ -312,23 +208,7 @@ impl App {
     /// The catalog came in: count its groups, load its guide, resume the last channel.
     fn catalog_arrived(&mut self, ctx: &egui::Context) {
         let Some(c) = self.catalog.ready() else { return };
-        let count = |groups: &[String], of: &mut dyn Iterator<Item = &String>| {
-            let mut n: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-            for g in of {
-                *n.entry(g.as_str()).or_default() += 1;
-            }
-            groups.iter().map(|g| (g.clone(), n.get(g.as_str()).copied().unwrap_or(0))).collect::<Vec<_>>()
-        };
-        self.group_counts = count(&c.groups, &mut c.channels.iter().map(|ch| &ch.group));
-        self.movie_group_counts = count(&c.movie_groups, &mut c.movies.iter().map(|m| &m.group));
-        self.series_group_counts = count(&c.series_groups, &mut c.series.iter().map(|s| &s.group));
-        // The group picked last time, if this source still has it.
-        if let Some(g) = &self.prefs.group
-            && c.groups.contains(g)
-        {
-            self.group = Some(g.clone());
-        }
-        let c = self.catalog.ready().expect("catalog");
+        self.browse.catalog_arrived(c, self.prefs.group.as_ref());
         if let Some(url) = c.epg_url.clone() {
             let channels = c.channels.clone();
             self.guide = Load::start(ctx, move || library::fetch_guide(&url, &channels));
@@ -362,16 +242,13 @@ impl App {
         }
     }
 
-    pub fn play(&mut self, ctx: &egui::Context, playing: Playing) {
-        let Some(request) = self.request_for(&playing) else {
-            self.show_toast("That can't be played");
-            return;
-        };
+    /// A player for `playing`, opened once the old one stopped (providers often allow
+    /// one connection); None when it can't be played.
+    fn open(&mut self, ctx: &egui::Context, playing: &Playing) -> Option<Player> {
+        let request = self.request_for(playing)?;
         log_info!("playing {}", request.url.split('?').next().unwrap_or(""));
-        // The old stream stops first: providers often allow one connection.
-        self.player = None;
+        self.session.player = None;
         self.video.clear();
-        self.start_pts = None;
         let repaint = ctx.clone();
         // A zero-delay request draws twice (egui lets layouts settle); a frame of video
         // needs one pass.
@@ -379,16 +256,35 @@ impl App {
             repaint.request_repaint_after(Duration::from_millis(1))
         });
         player.set_picture_delay(self.picture_delay());
-        self.player = Some(player);
+        Some(player)
+    }
+
+    pub fn play(&mut self, ctx: &egui::Context, playing: Playing) {
+        let Some(player) = self.open(ctx, &playing) else {
+            self.show_toast("That can't be played");
+            return;
+        };
         if let Playing::Live { key } = &playing {
             let source = self.source_id();
             self.marks.watched(&source, key);
             self.marks_serial += 1;
             self.prefs.update(|p| p.channel = Some(key.clone()));
         }
-        self.playing = Some(playing);
-        self.retries = 0;
-        self.retry_at = None;
+        self.session.start(playing, player);
+    }
+
+    /// Open what plays again, after the provider dropped it.
+    fn reopen(&mut self, ctx: &egui::Context) {
+        if let Some(playing) = self.session.playing.clone()
+            && let Some(player) = self.open(ctx, &playing)
+        {
+            self.session.restart(player);
+        }
+    }
+
+    fn stop(&mut self) {
+        self.session.stop();
+        self.video.clear();
     }
 
     /// The picture delay set for the output in use, in milliseconds.
@@ -406,80 +302,16 @@ impl App {
 
     /// What the rail lists, worked out again only when something it depends on changed.
     pub fn refresh_list(&mut self) {
-        let Some(catalog) = self.catalog.ready() else {
-            self.list.clear();
-            return;
-        };
-        let group = self.browse_group().clone();
-        let episodes = self.open_series.and_then(|i| Some((i, self.episodes.ready()?.len())));
-        let key = ListKey {
-            tab: self.tab,
-            group: group.clone(),
-            search: self.search.clone(),
-            size: catalog.channels.len() + catalog.movies.len() + catalog.series.len(),
-            marks: self.marks_serial,
-            episodes,
-        };
-        if self.list_key.as_ref() == Some(&key) {
-            return;
-        }
-        let needle = self.search.trim().to_lowercase();
-        let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
         let source = self.source_id();
-        let by_key = |k: &str| catalog.channels.iter().position(|c| c.key == k);
-        self.list = match self.tab {
-            Tab::Live => catalog
-                .channels
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| group.as_ref().is_none_or(|g| &c.group == g) && matches(&c.name))
-                .map(|(i, _)| i)
-                .collect(),
-            Tab::Favorites => self.marks.favorites(&source).filter_map(by_key).filter(|&i| matches(&catalog.channels[i].name)).collect(),
-            Tab::Recent => self.marks.recent(&source).filter_map(by_key).filter(|&i| matches(&catalog.channels[i].name)).collect(),
-            Tab::Movies => catalog
-                .movies
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| group.as_ref().is_none_or(|g| &m.group == g) && matches(&m.name))
-                .map(|(i, _)| i)
-                .collect(),
-            Tab::Series if self.open_series.is_some() => (0..episodes.map_or(0, |(_, n)| n)).collect(),
-            Tab::Series => catalog
-                .series
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| group.as_ref().is_none_or(|g| &s.group == g) && matches(&s.name))
-                .map(|(i, _)| i)
-                .collect(),
-        };
-        self.list_key = Some(key);
-    }
-
-    /// The group picked in the tab on screen (None for all).
-    pub fn browse_group(&self) -> &Option<String> {
-        match self.tab {
-            Tab::Movies => &self.movie_group,
-            Tab::Series => &self.series_group,
-            _ => &self.group,
-        }
-    }
-
-    /// The groups of the tab on screen, each with how many it holds.
-    pub fn browse_counts(&self) -> &[(String, usize)] {
-        match self.tab {
-            Tab::Movies => &self.movie_group_counts,
-            Tab::Series => &self.series_group_counts,
-            _ => &self.group_counts,
-        }
+        self.browse.refresh(self.catalog.ready(), &self.marks, &source, self.marks_serial);
     }
 
     /// Show the episodes of series `i`: the playlist lists them, or the provider is
     /// asked.
     fn open_series(&mut self, ctx: &egui::Context, i: usize) {
         let Some(series) = self.catalog.ready().and_then(|c| c.series.get(i)) else { return };
-        self.open_series = Some(i);
-        self.episodes = match self.source().and_then(Source::login) {
+        self.browse.open_series = Some(i);
+        self.browse.episodes = match self.source().and_then(Source::login) {
             Some(login) if series.episodes.is_empty() => {
                 let key = series.key.clone();
                 Load::start(ctx, move || login.episodes(&key).map_err(|e| e.to_string()))
@@ -488,19 +320,10 @@ impl App {
         };
     }
 
-    /// The episode after the one playing, if its series is open.
-    fn next_episode(&self) -> Option<Playing> {
-        let Some(Playing::Episode { series, episode }) = &self.playing else { return None };
-        let open = self.catalog.ready()?.series.get(self.open_series?)?;
-        let list = self.episodes.ready().filter(|_| &open.key == series)?;
-        let at = list.iter().position(|e| e.key == episode.key)?;
-        Some(Playing::Episode { series: series.clone(), episode: list.get(at + 1)?.clone() })
-    }
-
     /// Whether the panels over the picture show: always, unless something plays and
     /// the pointer has been still for a while.
     fn controls_visible(&self, ctx: &egui::Context) -> bool {
-        let playing = self.player.as_ref().is_some_and(|p| p.status() == Status::Playing && !p.paused());
+        let playing = self.session.player.as_ref().is_some_and(|p| p.status() == Status::Playing && !p.paused());
         if !playing || self.popup.is_some() || self.form.is_some() || self.focus_search {
             return true;
         }
@@ -540,18 +363,29 @@ impl App {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        self.poll_loads(ctx);
+        for act in self.presses() {
+            self.apply(ctx, act);
+        }
+        self.announce();
+        self.use_saved_output();
+        self.poll_player(ctx);
+    }
+
+    /// Take what the background loads brought.
+    fn poll_loads(&mut self, ctx: &egui::Context) {
         if self.catalog.poll() {
             if let Load::Failed(e) = &self.catalog {
                 log_warn!("catalog: {e}");
             }
-            self.list_key = None;
+            self.browse.relist();
             self.catalog_arrived(ctx);
         }
-        if self.episodes.poll() {
-            if let Load::Failed(e) = &self.episodes {
+        if self.browse.episodes.poll() {
+            if let Load::Failed(e) = &self.browse.episodes {
                 log_warn!("episodes: {e}");
             }
-            self.list_key = None;
+            self.browse.relist();
         }
         if self.guide.poll()
             && let Load::Failed(e) = &self.guide
@@ -565,79 +399,68 @@ impl App {
             self.form = None;
             self.apply(ctx, Act::SourceSaved(source, Box::new(catalog)));
         }
-        // The speaker's own buttons.
-        let presses: Vec<_> = self.remote.as_ref().map(|(_, rx)| rx.try_iter().collect()).unwrap_or_default();
-        for press in presses {
-            use crate::output::airplay::dacp::Remote;
-            let paused = self.player.as_ref().is_some_and(Player::paused);
-            let act = match press {
-                Remote::PlayPause => Act::TogglePause,
-                Remote::Play if paused => Act::TogglePause,
-                Remote::Pause if !paused => Act::TogglePause,
-                Remote::Play | Remote::Pause => continue,
-                Remote::Next => Act::Step(1),
-                Remote::Prev => Act::Step(-1),
-                Remote::Volume(v) => Act::Volume(v),
-                Remote::VolumeStep(d) => Act::Volume(self.prefs.volume + d),
-            };
-            self.apply(ctx, act);
-        }
-        // Media keys and the system's Now Playing controls.
-        let keys = self.now_playing.as_ref().map(|n| n.presses()).unwrap_or_default();
-        for key in keys {
-            use super::now_playing::Press;
-            let paused = self.player.as_ref().is_some_and(Player::paused);
-            let act = match key {
-                Press::Toggle => Act::TogglePause,
-                Press::Play if paused => Act::TogglePause,
-                Press::Pause if !paused => Act::TogglePause,
-                Press::Play | Press::Pause => continue,
-                Press::Next => Act::Step(1),
-                Press::Prev => Act::Step(-1),
-                Press::Seek(d) => Act::Seek(d),
-                Press::Volume(v) => Act::Volume(v),
-            };
-            self.apply(ctx, act);
-        }
-        self.announce();
-        // Speakers come and go; the one picked last time is used once it shows up.
+    }
+
+    /// Presses on the AirPlay speaker's buttons, media keys and the system's Now
+    /// Playing controls.
+    fn presses(&self) -> Vec<Act> {
+        use super::now_playing::Press;
+        use crate::output::airplay::dacp::Remote;
+        let speaker = self.remote.iter().flat_map(|(_, rx)| rx.try_iter()).map(|r| match r {
+            Remote::PlayPause => Act::TogglePause,
+            Remote::Play => Act::Pause(false),
+            Remote::Pause => Act::Pause(true),
+            Remote::Next => Act::Step(1),
+            Remote::Prev => Act::Step(-1),
+            Remote::Volume(v) => Act::Volume(v),
+            Remote::VolumeStep(d) => Act::Volume(self.prefs.volume + d),
+        });
+        let keys = self.now_playing.iter().flat_map(|n| n.presses()).map(|p| match p {
+            Press::Toggle => Act::TogglePause,
+            Press::Play => Act::Pause(false),
+            Press::Pause => Act::Pause(true),
+            Press::Next => Act::Step(1),
+            Press::Prev => Act::Step(-1),
+            Press::Seek(d) => Act::Seek(d),
+            Press::Volume(v) => Act::Volume(v),
+        });
+        speaker.chain(keys).collect()
+    }
+
+    /// Speakers come and go; the one picked last time is used once it shows up.
+    fn use_saved_output(&mut self) {
         if let (Some(name), Output::Local, Some(d)) = (&self.prefs.output, &self.output, &self.discovery)
             && let Some(device) = d.devices().into_iter().find(|d| &d.name == name)
         {
             self.output = Output::AirPlay(device);
-            if let Some(p) = &self.player {
+            if let Some(p) = &self.session.player {
                 p.set_output(self.output.clone());
             }
         }
-        let Some(player) = &self.player else { return };
+    }
+
+    /// The player's newest frame, what it has to say, and what its status calls for.
+    fn poll_player(&mut self, ctx: &egui::Context) {
+        let Some(player) = &self.session.player else { return };
         let (serial, frame) = player.frame();
         let (notice, status) = (player.take_notice(), player.status());
-        if self.start_pts.is_none() {
-            self.start_pts = frame.as_ref().map(|f| f.pts);
+        if self.session.start_pts.is_none() {
+            self.session.start_pts = frame.as_ref().map(|f| f.pts);
         }
         self.video.set_frame(serial, frame);
         if let Some(notice) = notice {
             self.show_toast(&notice);
         }
-        let live = matches!(self.playing, Some(Playing::Live { .. }));
-        match status {
-            Status::Failed(e) if live && self.retries < 5 => {
-                let at = *self.retry_at.get_or_insert_with(|| Instant::now() + Duration::from_secs(1 + u64::from(self.retries)));
-                if Instant::now() >= at {
-                    log_info!("reconnecting ({e})");
-                    self.apply(ctx, Act::Retry);
-                } else {
-                    ctx.request_repaint_after(at - Instant::now());
-                }
-            }
-            Status::Ended if live => self.apply(ctx, Act::Retry),
-            Status::Ended => {
-                if let Some(next) = self.next_episode() {
+        match self.session.next(&status, Instant::now()) {
+            Next::Nothing => {}
+            Next::Wait(at) => ctx.request_repaint_after(at.saturating_duration_since(Instant::now())),
+            Next::Reopen => self.reopen(ctx),
+            Next::Ended => {
+                let next = self.catalog.ready().zip(self.session.playing.as_ref()).and_then(|(c, p)| self.browse.next_episode(c, p));
+                if let Some(next) = next {
                     self.play(ctx, next);
                 }
             }
-            Status::Playing => self.retries = 0,
-            _ => {}
         }
     }
 
@@ -648,16 +471,16 @@ impl App {
         }
         let name = self.playing_name();
         let channel = self.playing_channel().cloned();
-        let title = match &self.playing {
+        let title = match &self.session.playing {
             Some(Playing::Catchup { programme, .. }) => programme.title.clone(),
             Some(Playing::Live { .. }) => channel.as_ref().and_then(|c| self.now_on(c)).map_or_else(|| name.clone(), |p| p.title.clone()),
             _ => name.clone(),
         };
         let subtitle = if title == name { self.source().map(|s| s.name.clone()).unwrap_or_default() } else { name };
         let logo = channel.and_then(|c| c.logo);
-        let playing = self.player.as_ref().is_some_and(|p| !p.paused());
+        let playing = self.session.player.as_ref().is_some_and(|p| !p.paused());
         if let Some(n) = &mut self.now_playing {
-            n.update(if self.playing.is_some() { &title } else { "" }, &subtitle, logo.as_deref(), playing);
+            n.update(if self.session.playing.is_some() { &title } else { "" }, &subtitle, logo.as_deref(), playing);
         }
     }
 
@@ -732,32 +555,22 @@ impl App {
             Act::PlayChannel(key) => self.play(ctx, Playing::Live { key }),
             Act::PlayMovie(key) => self.play(ctx, Playing::Movie { key }),
             Act::OpenSeries(Some(i)) => self.open_series(ctx, i),
-            Act::OpenSeries(None) => {
-                self.open_series = None;
-                self.episodes = Load::Idle;
-            }
+            Act::OpenSeries(None) => self.browse.close_series(),
             Act::PlayEpisode(i) => {
-                let series = self.open_series.and_then(|s| self.catalog.ready()?.series.get(s)).map(|s| s.key.clone());
-                if let (Some(series), Some(episode)) = (series, self.episodes.ready().and_then(|l| l.get(i)).cloned()) {
-                    self.play(ctx, Playing::Episode { series, episode });
+                if let Some(episode) = self.catalog.ready().and_then(|c| self.browse.episode(c, i)) {
+                    self.play(ctx, episode);
                 }
             }
             Act::PlayCatchup(key, programme) => self.play(ctx, Playing::Catchup { key, programme }),
             Act::GoLive => {
-                if let Some(key) = self.playing.as_ref().map(|p| p.key().to_string()) {
+                if let Some(key) = self.session.playing.as_ref().map(|p| p.key().to_string()) {
                     self.play(ctx, Playing::Live { key });
                 }
             }
-            Act::Retry => {
-                if let Some(playing) = self.playing.clone() {
-                    let retries = self.retries + 1;
-                    self.play(ctx, playing);
-                    self.retries = retries;
-                }
-            }
-            Act::TogglePause => {
-                if let Some(p) = &self.player {
-                    p.set_paused(!p.paused());
+            Act::TogglePause => self.apply(ctx, Act::Pause(!self.session.paused())),
+            Act::Pause(paused) => {
+                if let Some(p) = &self.session.player {
+                    p.set_paused(paused);
                 }
             }
             Act::Step(d) => self.step(ctx, d),
@@ -768,47 +581,22 @@ impl App {
             }
             Act::Tab(t) => {
                 self.prefs.update(|p| p.tab = Some(t.key().to_string()));
-                self.tab = t;
+                self.browse.tab = t;
                 self.rail_open = true;
                 self.popup = None;
             }
-            Act::Group(g) => match self.tab {
-                Tab::Movies => self.movie_group = g,
-                Tab::Series => {
-                    self.series_group = g;
-                    self.open_series = None;
-                    self.episodes = Load::Idle;
-                }
-                _ => {
+            Act::Group(g) => {
+                if !matches!(self.browse.tab, Tab::Movies | Tab::Series) {
                     self.prefs.update(|p| p.group = g.clone());
-                    self.group = g;
                 }
-            },
-            Act::Shelve(group, shelf) => {
-                let Some(i) = self.active else { return };
-                let source = &mut self.sources[i];
-                match shelf {
-                    Some(s) => source.shelves.insert(group.clone(), s),
-                    None => source.shelves.remove(&group),
-                };
-                library::save_sources(&self.sources);
-                // Read again with the group where it now belongs; what plays goes on.
-                self.switch_source(ctx, i, None);
-                let place = match shelf {
-                    Some(Shelf::Channels) => "with the channels",
-                    Some(Shelf::Movies) => "under Movies",
-                    Some(Shelf::Series) => "under Series",
-                    None => "where it looks like it belongs",
-                };
-                self.show_toast(&format!("{group} now shows {place}"));
+                self.browse.pick_group(g);
             }
+            Act::Shelve(group, shelf) => self.shelve(ctx, group, shelf),
             Act::ToggleGroups => self.groups_open = !self.groups_open,
             Act::SwitchSource(i) => {
                 self.popup = None;
                 if self.active != Some(i) {
-                    self.player = None;
-                    self.playing = None;
-                    self.video.clear();
+                    self.stop();
                     self.switch_source(ctx, i, None);
                 }
             }
@@ -823,11 +611,9 @@ impl App {
             }
             Act::Output(o) => {
                 self.prefs.update(|p| p.output = matches!(o, Output::AirPlay(_)).then(|| o.name().to_string()));
-                if let Some(p) = &self.player {
-                    p.set_output(o.clone());
-                }
                 self.output = o;
-                if let Some(p) = &self.player {
+                if let Some(p) = &self.session.player {
+                    p.set_output(self.output.clone());
                     p.set_picture_delay(self.picture_delay());
                 }
             }
@@ -836,31 +622,13 @@ impl App {
                     p.volume = v.clamp(0.0, 1.0);
                     p.muted = false;
                 });
-                if let Some(p) = &self.player {
-                    p.set_volume(self.effective_volume());
-                }
-            }
-            Act::PictureDelay(change) => {
-                let name = self.output.name().to_string();
-                let ms = change.map_or(0, |d| (self.picture_delay() + d).clamp(-2000, 3000));
-                self.prefs.update(|p| {
-                    if ms == 0 {
-                        p.picture_delays.remove(&name);
-                    } else {
-                        p.picture_delays.insert(name.clone(), ms);
-                    }
-                });
-                if let Some(p) = &self.player {
-                    p.set_picture_delay(ms);
-                }
-                self.show_toast(&format!("Picture delay on {name}: {}", delay_text(ms)));
+                self.update_volume();
             }
             Act::ToggleMute => {
                 self.prefs.update(|p| p.muted = !p.muted);
-                if let Some(p) = &self.player {
-                    p.set_volume(self.effective_volume());
-                }
+                self.update_volume();
             }
+            Act::PictureDelay(change) => self.change_picture_delay(change),
             Act::ToggleFullscreen => {
                 let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!full));
@@ -877,57 +645,16 @@ impl App {
                     self.form = Some(SourceForm::edit(s));
                 }
             }
-            Act::RemoveSource(i) => {
-                if i >= self.sources.len() {
-                    return;
-                }
-                let removed = self.sources.remove(i);
-                crate::credentials::clear(&removed.id);
-                self.marks.forget_source(&removed.id);
-                library::save_sources(&self.sources);
-                if self.active == Some(i) {
-                    self.player = None;
-                    self.playing = None;
-                    self.video.clear();
-                    self.catalog = Load::Idle;
-                    self.guide = Load::Idle;
-                    self.active = None;
-                    if !self.sources.is_empty() {
-                        self.switch_source(ctx, 0, None);
-                    }
-                } else if let Some(a) = self.active
-                    && a > i
-                {
-                    self.active = Some(a - 1);
-                }
-                self.show_toast(&format!("Removed {}", removed.name));
-            }
-            Act::SourceSaved(source, catalog) => {
-                let i = match self.sources.iter().position(|s| s.id == source.id) {
-                    Some(i) => {
-                        self.sources[i] = source.clone();
-                        i
-                    }
-                    None => {
-                        self.sources.push(source.clone());
-                        self.sources.len() - 1
-                    }
-                };
-                library::save_sources(&self.sources);
-                self.player = None;
-                self.playing = None;
-                self.video.clear();
-                self.switch_source(ctx, i, Some(*catalog));
-                self.show_toast(&format!("{} is ready", source.name));
-            }
+            Act::RemoveSource(i) => self.remove_source(ctx, i),
+            Act::SourceSaved(source, catalog) => self.save_source(ctx, source, *catalog),
             Act::AudioTrack(stream) => {
-                if let Some(p) = &self.player {
+                if let Some(p) = &self.session.player {
                     p.set_audio_track(stream);
                 }
                 self.popup = None;
             }
             Act::Seek(delta) => {
-                if let (Some(p), false) = (&self.player, matches!(self.playing, Some(Playing::Live { .. }))) {
+                if let (Some(p), false) = (&self.session.player, self.session.live()) {
                     let now = p.position().unwrap_or(0.0);
                     p.seek(now + delta);
                 }
@@ -936,48 +663,100 @@ impl App {
         }
     }
 
+    fn update_volume(&self) {
+        if let Some(p) = &self.session.player {
+            p.set_volume(self.effective_volume());
+        }
+    }
+
+    /// Change the picture delay of the output in use by `change` milliseconds, or set
+    /// it back to zero.
+    fn change_picture_delay(&mut self, change: Option<i32>) {
+        let name = self.output.name().to_string();
+        let ms = change.map_or(0, |d| (self.picture_delay() + d).clamp(-2000, 3000));
+        self.prefs.update(|p| {
+            if ms == 0 {
+                p.picture_delays.remove(&name);
+            } else {
+                p.picture_delays.insert(name.clone(), ms);
+            }
+        });
+        if let Some(p) = &self.session.player {
+            p.set_picture_delay(ms);
+        }
+        self.show_toast(&format!("Picture delay on {name}: {}", delay_text(ms)));
+    }
+
+    /// Put a playlist group with the channels, movies or series (None: where it looks
+    /// like it belongs), and read the source again; what plays goes on.
+    fn shelve(&mut self, ctx: &egui::Context, group: String, shelf: Option<Shelf>) {
+        let Some(i) = self.active else { return };
+        let source = &mut self.sources[i];
+        match shelf {
+            Some(s) => source.shelves.insert(group.clone(), s),
+            None => source.shelves.remove(&group),
+        };
+        library::save_sources(&self.sources);
+        self.switch_source(ctx, i, None);
+        let place = match shelf {
+            Some(Shelf::Channels) => "with the channels",
+            Some(Shelf::Movies) => "under Movies",
+            Some(Shelf::Series) => "under Series",
+            None => "where it looks like it belongs",
+        };
+        self.show_toast(&format!("{group} now shows {place}"));
+    }
+
+    fn remove_source(&mut self, ctx: &egui::Context, i: usize) {
+        if i >= self.sources.len() {
+            return;
+        }
+        let removed = self.sources.remove(i);
+        crate::credentials::clear(&removed.id);
+        self.marks.forget_source(&removed.id);
+        library::save_sources(&self.sources);
+        if self.active == Some(i) {
+            self.stop();
+            self.catalog = Load::Idle;
+            self.guide = Load::Idle;
+            self.active = None;
+            if !self.sources.is_empty() {
+                self.switch_source(ctx, 0, None);
+            }
+        } else if let Some(a) = self.active
+            && a > i
+        {
+            self.active = Some(a - 1);
+        }
+        self.show_toast(&format!("Removed {}", removed.name));
+    }
+
+    /// A source checked and ready: keep it (in place of the one edited) and use it.
+    fn save_source(&mut self, ctx: &egui::Context, source: Source, catalog: Catalog) {
+        let i = match self.sources.iter().position(|s| s.id == source.id) {
+            Some(i) => {
+                self.sources[i] = source.clone();
+                i
+            }
+            None => {
+                self.sources.push(source.clone());
+                self.sources.len() - 1
+            }
+        };
+        library::save_sources(&self.sources);
+        self.stop();
+        self.switch_source(ctx, i, Some(catalog));
+        self.show_toast(&format!("{} is ready", source.name));
+    }
+
     /// The next or previous entry of the list on screen (channel zapping).
     fn step(&mut self, ctx: &egui::Context, d: i32) {
         self.refresh_list();
-        if self.list.is_empty() {
-            return;
+        let current = self.session.playing.as_ref().map(Playing::key);
+        if let Some(next) = self.catalog.ready().and_then(|c| self.browse.step(c, current, d)) {
+            self.play(ctx, next);
         }
-        let current = self.playing.as_ref().map(|p| p.key().to_string());
-        let Some(catalog) = self.catalog.ready() else { return };
-        let episodes = self.episodes.ready().map_or(&[][..], Vec::as_slice);
-        let key_at = |i: usize| match self.tab {
-            Tab::Movies => Some(&catalog.movies[i].key),
-            // Through the episodes of the open series; the list of series has no order to zap.
-            Tab::Series => self.open_series.and(episodes.get(i)).map(|e| &e.key),
-            _ => Some(&catalog.channels[i].key),
-        };
-        let pos = current.and_then(|k| self.list.iter().position(|&i| key_at(i) == Some(&k)));
-        let n = self.list.len() as i32;
-        let next = match pos {
-            Some(p) => (p as i32 + d).rem_euclid(n),
-            None => 0,
-        } as usize;
-        let act = match self.tab {
-            Tab::Movies => Act::PlayMovie(catalog.movies[self.list[next]].key.clone()),
-            Tab::Series if self.open_series.is_some() => Act::PlayEpisode(self.list[next]),
-            Tab::Series => return,
-            _ => Act::PlayChannel(catalog.channels[self.list[next]].key.clone()),
-        };
-        self.apply(ctx, act);
     }
-}
-
-/// What the rail's list was worked out for.
-#[derive(Clone, Debug, PartialEq)]
-struct ListKey {
-    tab: Tab,
-    group: Option<String>,
-    search: String,
-    /// How big the catalog is (a new one lists again).
-    size: usize,
-    marks: u64,
-    /// The open series and how many episodes it has, once they're in.
-    episodes: Option<(usize, usize)>,
 }
 
 /// `+150 ms`, `-50 ms`, `none`.
@@ -1031,7 +810,7 @@ impl eframe::App for App {
         }
         // The programme line and times move on even when no new frames come (paused,
         // or sound only).
-        if self.player.as_ref().is_some_and(|p| p.paused() || p.status() != Status::Playing || p.info().video_codec.is_none()) {
+        if self.session.player.as_ref().is_some_and(|p| p.paused() || p.status() != Status::Playing || p.info().video_codec.is_none()) {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
     }

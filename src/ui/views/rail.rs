@@ -1,7 +1,7 @@
 //! The channel list down the left: search, the group, and what's on each channel.
 
-use crate::iptv::time;
 use crate::iptv::model::Shelf;
+use crate::iptv::time;
 use crate::ui::app::{Act, App, Tab};
 use crate::ui::icons::{self, Icon};
 use crate::ui::load::Load;
@@ -12,7 +12,7 @@ use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
 impl App {
     /// Whether the column of groups shows beside the channels.
     pub fn shows_groups(&self) -> bool {
-        self.groups_open && matches!(self.tab, Tab::Live | Tab::Movies | Tab::Series) && self.browse_counts().len() > 1
+        self.groups_open && matches!(self.browse.tab, Tab::Live | Tab::Movies | Tab::Series) && self.browse.groups().counts.len() > 1
     }
 
     /// How wide the rail is now.
@@ -22,8 +22,11 @@ impl App {
 
     pub fn rail(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
         let top = screen.top() + metrics::GAP - 4.0 + metrics::TOP_BAR + metrics::GAP;
-        let bottom =
-            if self.player.is_some() { screen.bottom() - metrics::BOTTOM - metrics::GAP * 2.0 } else { screen.bottom() - metrics::GAP };
+        let bottom = if self.session.player.is_some() {
+            screen.bottom() - metrics::BOTTOM - metrics::GAP * 2.0
+        } else {
+            screen.bottom() - metrics::GAP
+        };
         let width = self.rail_width().min(screen.width() - metrics::GAP * 2.0);
         let rect = Rect::from_min_max(pos2(screen.left() + metrics::GAP, top), pos2(screen.left() + metrics::GAP + width, bottom));
         if rect.height() < 120.0 {
@@ -61,7 +64,7 @@ impl App {
     /// The groups: a filter when there are many, then every group with its count.
     fn groups_column(&mut self, ui: &mut egui::Ui, width: f32, acts: &mut Vec<Act>) {
         let p = colors();
-        let library = matches!(self.tab, Tab::Movies | Tab::Series);
+        let library = matches!(self.browse.tab, Tab::Movies | Tab::Series);
         ui.horizontal(|ui| {
             ui.set_height(34.0);
             ui.add_space(6.0);
@@ -72,26 +75,26 @@ impl App {
                 }
             });
         });
-        if self.browse_counts().len() > 12 {
-            widgets::filter_field(ui, &mut self.group_filter, "Filter groups", width);
+        if self.browse.groups().counts.len() > 12 {
+            widgets::filter_field(ui, &mut self.browse.group_filter, "Filter groups", width);
             ui.add_space(4.0);
         }
-        let current = self.browse_group().clone();
-        let needle = self.group_filter.trim().to_lowercase();
-        let counts = self.browse_counts();
+        let current = self.browse.groups().picked.clone();
+        let needle = self.browse.group_filter.trim().to_lowercase();
+        let counts = &self.browse.groups().counts;
         let total: usize = counts.iter().map(|(_, n)| n).sum();
         let shown: Vec<&(String, usize)> = counts.iter().filter(|(g, _)| needle.is_empty() || g.to_lowercase().contains(&needle)).collect();
-        let all = all_label(self.tab);
+        let all = all_label(self.browse.tab);
         let mut chosen = None;
         // Playlists' groups can be moved between channels, movies and series.
         let movable = self.source().is_some_and(|s| s.login().is_none());
-        let here = match self.tab {
+        let here = match self.browse.tab {
             Tab::Movies => Shelf::Movies,
             Tab::Series => Shelf::Series,
             _ => Shelf::Channels,
         };
         let moved = |g: &str| self.source().is_some_and(|s| s.shelves.contains_key(g));
-        egui::ScrollArea::vertical().id_salt(("groups", self.tab)).auto_shrink([false, false]).show_rows(
+        egui::ScrollArea::vertical().id_salt(("groups", self.browse.tab)).auto_shrink([false, false]).show_rows(
             ui,
             metrics::GROUP_ROW,
             shown.len() + 1,
@@ -107,9 +110,11 @@ impl App {
                     }
                     if i > 0 && movable {
                         row.context_menu(|ui| {
-                            for (shelf, label) in
-                                [(Shelf::Channels, "Show as channels"), (Shelf::Movies, "Show as movies"), (Shelf::Series, "Show as series")]
-                            {
+                            for (shelf, label) in [
+                                (Shelf::Channels, "Show as channels"),
+                                (Shelf::Movies, "Show as movies"),
+                                (Shelf::Series, "Show as series"),
+                            ] {
                                 if shelf != here && ui.button(label).clicked() {
                                     acts.push(Act::Shelve(name.to_string(), Some(shelf)));
                                     ui.close();
@@ -131,30 +136,30 @@ impl App {
 
     fn rail_header(&mut self, ui: &mut egui::Ui, width: f32, acts: &mut Vec<Act>) {
         let p = colors();
-        let resp = widgets::search_field(ui, &mut self.search, width);
+        let resp = widgets::search_field(ui, &mut self.browse.search, width);
         if self.focus_search {
             resp.request_focus();
             self.focus_search = false;
         }
         if resp.has_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
-            && let Some(&first) = self.list.first()
+            && let Some(&first) = self.browse.list.first()
         {
             acts.push(self.play_act(first));
         }
         ui.add_space(4.0);
-        if let Some(i) = self.open_series {
+        if let Some(i) = self.browse.open_series {
             self.series_header(ui, width, i, acts);
             return;
         }
         // What's listed: the group (click to show the column of groups) and how many.
-        let browsing = matches!(self.tab, Tab::Live | Tab::Movies | Tab::Series);
-        let label = match (browsing, self.browse_group().clone()) {
+        let browsing = matches!(self.browse.tab, Tab::Live | Tab::Movies | Tab::Series);
+        let label = match (browsing, self.browse.groups().picked.clone()) {
             (true, Some(g)) => g,
-            (true, None) => all_label(self.tab).into(),
-            (false, _) => self.tab.label().into(),
+            (true, None) => all_label(self.browse.tab).into(),
+            (false, _) => self.browse.tab.label().into(),
         };
-        let can_open = browsing && !self.shows_groups() && self.browse_counts().len() > 1;
+        let can_open = browsing && !self.shows_groups() && self.browse.groups().counts.len() > 1;
         let (r, click) = ui.allocate_exact_size(vec2(width, 30.0), if can_open { Sense::click() } else { Sense::hover() });
         if can_open && click.hovered() {
             ui.painter().rect_filled(r, CornerRadius::same(9), p.hl);
@@ -169,7 +174,7 @@ impl App {
         ui.painter().text(
             pos2(r.right() - 8.0, r.center().y),
             Align2::RIGHT_CENTER,
-            self.list.len().to_string(),
+            self.browse.list.len().to_string(),
             typography::meta(),
             p.faint,
         );
@@ -190,8 +195,8 @@ impl App {
         let x = r.left() + 28.0;
         let text = widgets::ellipsize(ui, &series.name, typography::small_strong(), p.text, r.right() - x - 60.0);
         ui.painter().galley(pos2(x, r.center().y - text.size().y / 2.0), text, p.text);
-        if !self.episodes.is_loading() {
-            let n = self.list.len();
+        if !self.browse.episodes.is_loading() {
+            let n = self.browse.list.len();
             let count = if n == 1 { "1 episode".to_string() } else { format!("{n} episodes") };
             ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count, typography::meta(), p.faint);
         }
@@ -202,9 +207,9 @@ impl App {
 
     pub fn play_act(&self, index: usize) -> Act {
         let Some(c) = self.catalog.ready() else { return Act::Toast(String::new()) };
-        match self.tab {
+        match self.browse.tab {
             Tab::Movies => Act::PlayMovie(c.movies[index].key.clone()),
-            Tab::Series if self.open_series.is_some() => Act::PlayEpisode(index),
+            Tab::Series if self.browse.open_series.is_some() => Act::PlayEpisode(index),
             Tab::Series => Act::OpenSeries(Some(index)),
             _ => Act::PlayChannel(c.channels[index].key.clone()),
         }
@@ -225,8 +230,8 @@ impl App {
             }
             Load::Ready(_) => {}
         }
-        if self.open_series.is_some() {
-            match &self.episodes {
+        if self.browse.open_series.is_some() {
+            match &self.browse.episodes {
                 Load::Loading(_) | Load::Idle => {
                     let c = ui.available_rect_before_wrap().center();
                     widgets::spinner(ui, c, 12.0, p.accent);
@@ -240,9 +245,9 @@ impl App {
                 Load::Ready(_) => {}
             }
         }
-        if self.list.is_empty() {
+        if self.browse.list.is_empty() {
             ui.add_space(16.0);
-            let text = match self.tab {
+            let text = match self.browse.tab {
                 Tab::Favorites => "No favourites yet. Right-click a channel, or press the star while it plays.",
                 Tab::Recent => "Channels you watch show up here.",
                 Tab::Movies if self.catalog.ready().is_some_and(|c| c.movies.is_empty()) => "This source has no movies.",
@@ -252,21 +257,21 @@ impl App {
             ui.label(egui::RichText::new(text).font(typography::body()).color(p.dim));
             return;
         }
-        let playing = self.playing.as_ref().map(|pl| pl.key().to_string());
-        let list = std::mem::take(&mut self.list);
-        let salt = ("rail", self.tab, self.browse_group().clone(), self.open_series);
+        let playing = self.session.playing.as_ref().map(|pl| pl.key().to_string());
+        let list = std::mem::take(&mut self.browse.list);
+        let salt = ("rail", self.browse.tab, self.browse.groups().picked.clone(), self.browse.open_series);
         let area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(salt);
         area.show_rows(ui, metrics::CHANNEL_ROW, list.len(), |ui, range| {
             for &index in &list[range] {
-                match self.tab {
+                match self.browse.tab {
                     Tab::Movies => self.movie_row(ui, index, playing.as_deref(), acts),
-                    Tab::Series if self.open_series.is_some() => self.episode_row(ui, index, playing.as_deref(), acts),
+                    Tab::Series if self.browse.open_series.is_some() => self.episode_row(ui, index, playing.as_deref(), acts),
                     Tab::Series => self.series_row(ui, index, acts),
                     _ => self.channel_row(ui, index, playing.as_deref(), acts),
                 }
             }
         });
-        self.list = list;
+        self.browse.list = list;
     }
 
     fn channel_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
@@ -377,7 +382,7 @@ impl App {
 
     fn episode_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
         let p = colors();
-        let Some(episode) = self.episodes.ready().and_then(|l| l.get(index)) else { return };
+        let Some(episode) = self.browse.episodes.ready().and_then(|l| l.get(index)) else { return };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
         let on = playing == Some(episode.key.as_str());
         if on || resp.hovered() {

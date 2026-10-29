@@ -70,12 +70,8 @@ impl Source {
             "xtream" => Kind::Xtream { server: s("server")?, user: s("user")? },
             _ => return None,
         };
-        let shelves = v["shelves"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(g, s)| Some((g.clone(), Shelf::from_key(s.as_str()?)?)))
-            .collect();
+        let shelves =
+            v["shelves"].as_object().into_iter().flatten().filter_map(|(g, s)| Some((g.clone(), Shelf::from_key(s.as_str()?)?))).collect();
         Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind, shelves })
     }
 }
@@ -319,8 +315,18 @@ mod tests {
     #[test]
     fn sources_round_trip() {
         for s in [
-            Source { id: "a".into(), name: "Home".into(), kind: Kind::Playlist { location: "http://x/list.m3u".into(), epg: None }, shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]) },
-            Source { id: "b".into(), name: "XC".into(), kind: Kind::Xtream { server: "http://x:8080".into(), user: "me".into() }, shelves: BTreeMap::new() },
+            Source {
+                id: "a".into(),
+                name: "Home".into(),
+                kind: Kind::Playlist { location: "http://x/list.m3u".into(), epg: None },
+                shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]),
+            },
+            Source {
+                id: "b".into(),
+                name: "XC".into(),
+                kind: Kind::Xtream { server: "http://x:8080".into(), user: "me".into() },
+                shelves: BTreeMap::new(),
+            },
         ] {
             assert_eq!(Source::from_json(&s.to_json()), Some(s));
         }

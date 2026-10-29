@@ -15,7 +15,7 @@ const STRIP: usize = 5;
 
 impl App {
     pub fn bottom(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
-        if self.player.is_none() {
+        if self.session.player.is_none() {
             return;
         }
         let rect = Rect::from_min_max(
@@ -29,7 +29,7 @@ impl App {
                 ui.set_max_size(inner);
                 self.now_line(ui, acts);
                 ui.add_space(10.0);
-                match self.playing.clone() {
+                match self.session.playing.clone() {
                     Some(Playing::Live { key }) => self.live_progress(ui, &key, acts),
                     Some(_) => self.seek_bar(ui, acts),
                     None => {}
@@ -40,10 +40,10 @@ impl App {
 
     fn now_line(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let p = colors();
-        let live = matches!(self.playing, Some(Playing::Live { .. }));
+        let live = matches!(self.session.playing, Some(Playing::Live { .. }));
         let channel = self.playing_channel().cloned();
         let name = self.playing_name();
-        let (title, eyebrow) = match &self.playing {
+        let (title, eyebrow) = match &self.session.playing {
             Some(Playing::Catchup { programme, .. }) => {
                 (programme.title.clone(), format!("{name} · from the archive · {}", clock_range(programme)))
             }
@@ -128,7 +128,7 @@ impl App {
         if widgets::icon_button(ui, Icon::Next, 34.0, p.text, if live { "Next channel (↓)" } else { "Next (↓)" }).clicked() {
             acts.push(Act::Step(1));
         }
-        let paused = self.player.as_ref().is_some_and(|pl| pl.paused());
+        let paused = self.session.player.as_ref().is_some_and(|pl| pl.paused());
         if widgets::round_button(ui, if paused { Icon::Play } else { Icon::Pause }, 44.0, p.text, p.glass_strong.to_opaque()).clicked() {
             acts.push(Act::TogglePause);
         }
@@ -137,7 +137,7 @@ impl App {
         }
         ui.add_space(6.0);
         // Back to live, or watch the programme on now from its start.
-        match &self.playing {
+        match &self.session.playing {
             Some(Playing::Catchup { .. }) => {
                 if widgets::pill(ui, None, "Go live", true).clicked() {
                     acts.push(Act::GoLive);
@@ -154,7 +154,7 @@ impl App {
             }
             _ => {}
         }
-        let tracks = self.player.as_ref().map(|pl| pl.info().audio_tracks.len()).unwrap_or(0);
+        let tracks = self.session.player.as_ref().map(|pl| pl.info().audio_tracks.len()).unwrap_or(0);
         if tracks > 1 {
             let r = widgets::icon_button(ui, Icon::Audio, 34.0, p.dim, "Audio track");
             self.anchor(Popup::AudioTracks, r.rect);
@@ -234,11 +234,11 @@ impl App {
     /// Position and length of a recording, with a bar to seek on.
     fn seek_bar(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let p = colors();
-        let Some(player) = &self.player else { return };
+        let Some(player) = &self.session.player else { return };
         let info = player.info();
-        let start = self.start_pts.unwrap_or(0.0);
+        let start = self.session.start_pts.unwrap_or(0.0);
         let position = (player.position().unwrap_or(start) - start).max(0.0);
-        let duration = match &self.playing {
+        let duration = match &self.session.playing {
             Some(Playing::Catchup { programme, .. }) => Some((programme.stop - programme.start) as f64),
             _ => info.duration,
         };
@@ -271,7 +271,7 @@ impl App {
 
     /// Codec and size, quietly, at the right.
     fn stream_info(&self, ui: &egui::Ui, rect: Rect) {
-        let Some(player) = &self.player else { return };
+        let Some(player) = &self.session.player else { return };
         if player.status() != Status::Playing {
             return;
         }

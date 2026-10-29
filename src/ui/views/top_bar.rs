@@ -66,7 +66,7 @@ impl App {
 
     fn tab_button(&self, ui: &mut egui::Ui, tab: Tab) -> egui::Response {
         let p = colors();
-        let on = self.tab == tab;
+        let on = self.browse.tab == tab;
         let g = ui.painter().layout_no_wrap(tab.label().into(), typography::control(), p.text);
         let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 24.0, 30.0), Sense::click());
         if on || resp.hovered() {

@@ -1,7 +1,8 @@
 //! egui front-end in the "Cinema" look: the picture fills the window and the
 //! controls float over it as glass panels, fading away while you watch.
 //!
-//! - [`app`]: state, what happens each frame, and what actions do
+//! - [`app`]: state, what happens each frame, and what actions do; [`browse`]:
+//!   what the rail lists; [`session`]: what plays
 //! - [`views`]: the top bar, channel rail, bottom panel, menus, dialogs
 //! - [`video`]: the picture, drawn on the GPU from the decoder's YUV planes
 //! - [`style`], [`icons`], [`widgets`]: the look
@@ -9,10 +10,12 @@
 //! - [`now_playing`]: media keys and the OS "Now Playing" widget
 
 mod app;
+mod browse;
 mod icons;
 mod load;
 mod logos;
 mod now_playing;
+mod session;
 mod style;
 mod video;
 mod views;

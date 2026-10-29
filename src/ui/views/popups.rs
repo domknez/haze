@@ -165,7 +165,7 @@ impl App {
     }
 
     fn tracks_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        let Some(player) = &self.player else { return };
+        let Some(player) = &self.session.player else { return };
         let info = player.info();
         heading(ui, "Audio");
         for (i, t) in info.audio_tracks.iter().enumerate() {
