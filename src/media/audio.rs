@@ -101,13 +101,11 @@ pub fn run(
                 resampler = make_resampler(&frame).map(|r| (r, key));
             }
             let Some((r, _)) = &mut resampler else { continue };
-            if r.run(&frame, &mut converted).is_err() {
-                continue;
-            }
-            let n = converted.samples();
-            let bytes = &converted.data(0)[..n * 4];
-            samples.clear();
-            samples.extend(bytes.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])));
+            let Some(held) = convert(r, &frame, &mut converted, &mut samples) else { continue };
+            // What comes out is older than the frame that went in by what the
+            // converter still holds.
+            let start = start
+                .map(|t| t + frame.samples() as f64 / f64::from(frame.rate().max(1)) - (held + samples.len() / 2) as f64 / f64::from(RATE));
             feeder.write(&samples, start);
             if feeder.shared.stopped() {
                 break;
@@ -233,6 +231,28 @@ fn open_sink(shared: &Shared, output: &Output, volume: f32) -> (Box<dyn Sink>, O
     }
 }
 
+/// Converts `frame` into `samples` (interleaved stereo i16 at [`RATE`]); returns how
+/// many frames the converter holds back, or None if it failed.
+///
+/// The output frame is made big enough for all of this input every time: given one
+/// sized for an earlier, shorter frame, the converter keeps the rest, and what it
+/// keeps grows with every frame — the sound falls ever further behind the picture.
+fn convert(
+    r: &mut ffmpeg::software::resampling::Context,
+    frame: &ffmpeg::frame::Audio,
+    out: &mut ffmpeg::frame::Audio,
+    samples: &mut Vec<i16>,
+) -> Option<usize> {
+    let held = r.delay().map_or(0, |d| d.output.max(0) as usize);
+    let room = (frame.samples() + 1) * RATE as usize / frame.rate().max(1) as usize + held + 32;
+    *out = ffmpeg::frame::Audio::new(Sample::I16(SampleType::Packed), room, ChannelLayout::STEREO);
+    r.run(frame, out).ok()?;
+    let n = out.samples();
+    samples.clear();
+    samples.extend(out.data(0)[..n * 4].chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])));
+    Some(r.delay().map_or(0, |d| d.output.max(0) as usize))
+}
+
 /// Identifies a channel layout well enough to tell when it changes.
 fn layout_key(frame: &ffmpeg::frame::Audio) -> u64 {
     u64::from(frame.channels())
@@ -273,4 +293,41 @@ impl Sink for NullSink {
     fn resume(&mut self) {}
     fn flush(&mut self) {}
     fn set_volume(&mut self, _: f32) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tone(samples: usize, rate: u32) -> ffmpeg::frame::Audio {
+        let mut f = ffmpeg::frame::Audio::new(Sample::F32(SampleType::Planar), samples, ChannelLayout::STEREO);
+        f.set_rate(rate);
+        for ch in 0..2 {
+            for (i, s) in f.plane_mut::<f32>(ch).iter_mut().enumerate() {
+                *s = (i as f32 * 0.05).sin() * 0.5;
+            }
+        }
+        f
+    }
+
+    /// Frames that grow after the first (HE-AAC sends 2048 after 1024) all come out
+    /// whole: nothing piles up in the converter.
+    #[test]
+    fn keeps_up_when_frames_grow() {
+        ffmpeg::init().unwrap();
+        let first = tone(1024, 48_000);
+        let mut r = make_resampler(&first).unwrap();
+        let (mut out, mut samples) = (ffmpeg::frame::Audio::empty(), Vec::new());
+        let (mut fed, mut got) = (0usize, 0usize);
+        let mut held = 0;
+        for n in [1024, 2048, 2048, 2048, 1152, 2048, 2048, 2048, 2048, 2048] {
+            let f = if n == 1024 { tone(1024, 48_000) } else { tone(n, 48_000) };
+            held = convert(&mut r, &f, &mut out, &mut samples).unwrap();
+            fed += n;
+            got += samples.len() / 2;
+        }
+        let expected = fed * 44_100 / 48_000;
+        assert!(held < 64, "the converter holds {held} frames");
+        assert!(expected.abs_diff(got + held) < 64, "fed {expected} worth, got {got} + {held} held");
+    }
 }

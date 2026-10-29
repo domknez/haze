@@ -151,7 +151,8 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str =
+        "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {
