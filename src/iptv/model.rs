@@ -110,6 +110,86 @@ impl Episode {
     }
 }
 
+/// A name as it should read: accents joined to their letters, and the small raised
+/// letters providers tag channels with (`ᶠʰᵈ`, `ᴴᴰ`, `ʰᵉᵛᶜ`), which most fonts lack,
+/// written as plain capitals (`FHD`).
+pub fn tidy_name(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    if name.is_ascii() {
+        return name.trim().to_string();
+    }
+    let mut out = String::with_capacity(name.len());
+    let mut chars = name.nfc().peekable();
+    while let Some(c) = chars.next() {
+        if raised(c).is_none() {
+            out.push(c);
+            continue;
+        }
+        let mut run = vec![c];
+        while let Some(&n) = chars.peek().filter(|n| raised(**n).is_some()) {
+            run.push(n);
+            chars.next();
+        }
+        // Raised digits on their own (`m²`) stay as they are.
+        if !run.iter().any(|c| raised(*c).is_some_and(|r| r.is_ascii_alphabetic())) {
+            out.extend(run);
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with(' ') {
+            out.push(' ');
+        }
+        out.extend(run.into_iter().filter_map(raised));
+        if chars.peek().is_some_and(|n| n.is_alphanumeric()) {
+            out.push(' ');
+        }
+    }
+    out.trim().to_string()
+}
+
+/// The plain character a raised (modifier or superscript) letter, digit or plus
+/// stands for.
+fn raised(c: char) -> Option<char> {
+    Some(match c {
+        'ᵃ' | 'ᴬ' => 'A',
+        'ᵇ' | 'ᴮ' => 'B',
+        'ᶜ' => 'C',
+        'ᵈ' | 'ᴰ' => 'D',
+        'ᵉ' | 'ᴱ' => 'E',
+        'ᶠ' => 'F',
+        'ᵍ' | 'ᴳ' => 'G',
+        'ʰ' | 'ᴴ' => 'H',
+        'ⁱ' | 'ᴵ' => 'I',
+        'ʲ' | 'ᴶ' => 'J',
+        'ᵏ' | 'ᴷ' => 'K',
+        'ˡ' | 'ᴸ' => 'L',
+        'ᵐ' | 'ᴹ' => 'M',
+        'ⁿ' | 'ᴺ' => 'N',
+        'ᵒ' | 'ᴼ' => 'O',
+        'ᵖ' | 'ᴾ' => 'P',
+        'ʳ' | 'ᴿ' => 'R',
+        'ˢ' => 'S',
+        'ᵗ' | 'ᵀ' => 'T',
+        'ᵘ' | 'ᵁ' => 'U',
+        'ᵛ' | 'ⱽ' => 'V',
+        'ʷ' | 'ᵂ' => 'W',
+        'ˣ' => 'X',
+        'ʸ' => 'Y',
+        'ᶻ' => 'Z',
+        '⁰' => '0',
+        '¹' => '1',
+        '²' => '2',
+        '³' => '3',
+        '⁴' => '4',
+        '⁵' => '5',
+        '⁶' => '6',
+        '⁷' => '7',
+        '⁸' => '8',
+        '⁹' => '9',
+        '⁺' => '+',
+        _ => return None,
+    })
+}
+
 /// Where a playlist group's entries go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shelf {
@@ -204,6 +284,16 @@ impl Guide {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tidies_names() {
+        assert_eq!(tidy_name("Arena Sport 1 ᶠʰᵈ"), "Arena Sport 1 FHD");
+        assert_eq!(tidy_name("RTL ᴴᴰ+"), "RTL HD+");
+        assert_eq!(tidy_name("Nova TVʰᵈ ʰᵉᵛᶜ"), "Nova TV HD HEVC");
+        assert_eq!(tidy_name("ᵁᴴᴰ Cinema"), "UHD Cinema");
+        assert_eq!(tidy_name("Zu\u{308}rich Cafe\u{301}"), "Zürich Café");
+        assert_eq!(tidy_name("Area 5 m²"), "Area 5 m²");
+    }
 
     fn programme(start: i64, stop: i64) -> Programme {
         Programme { start, stop, title: format!("{start}"), desc: String::new() }

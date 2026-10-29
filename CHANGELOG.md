@@ -21,4 +21,7 @@ The first version of haze:
   was watched and a tick the ones seen
 - AirPlay 2 and AirPlay 1 output with lip sync, the speaker's buttons, media keys and
   Now Playing; a picture delay per output
+- Channel names read cleanly: the raised letters providers tag them with (`ᶠʰᵈ`,
+  `ᴴᴰ`) become plain capitals, accents sit on their letters, and `|` no longer looks
+  like `I`
 - GPU decoding (VideoToolbox, D3D11, VA-API) and YUV drawn by a shader

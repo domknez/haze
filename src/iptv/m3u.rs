@@ -246,7 +246,7 @@ impl Entry {
         let (head, name) = split_name(rest);
         let attrs = attributes(head);
         let group = attr(&attrs, "group-title").map(str::to_string);
-        Entry { name: name.trim().to_string(), attrs, group, ..Entry::default() }
+        Entry { name: super::model::tidy_name(name), attrs, group, ..Entry::default() }
     }
 
     fn into_channel(self, url: &str) -> Channel {

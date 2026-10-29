@@ -3,7 +3,7 @@
 //! video library; streams, the guide and the archive have URLs of their own.
 
 use super::http::{self, Error, decode, encode};
-use super::model::{Account, Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series};
+use super::model::{Account, Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series, tidy_name};
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -180,7 +180,7 @@ impl Login {
         let archive = number(&v["tv_archive"]).unwrap_or(0) > 0;
         Some(Channel {
             key: id.to_string(),
-            name: string(&v["name"])?.trim().to_string(),
+            name: tidy_name(&string(&v["name"])?),
             number: number(&v["num"]).map(|n| n as u32),
             logo: string(&v["stream_icon"]).filter(|s| s.starts_with("http")),
             group: group_name(&v["category_id"], groups),
@@ -198,7 +198,7 @@ impl Login {
     fn movie(&self, v: &Value, groups: &[(String, String)]) -> Option<Movie> {
         let id = number(&v["stream_id"])?;
         let ext = string(&v["container_extension"]).unwrap_or_else(|| "mp4".into());
-        let name = string(&v["name"])?.trim().to_string();
+        let name = tidy_name(&string(&v["name"])?);
         Some(Movie {
             key: id.to_string(),
             year: string(&v["year"]).and_then(|y| y.parse().ok()).or_else(|| year_in(&name)),
@@ -215,7 +215,7 @@ impl Login {
 }
 
 fn series(v: &Value, groups: &[(String, String)]) -> Option<Series> {
-    let name = string(&v["name"])?.trim().to_string();
+    let name = tidy_name(&string(&v["name"])?);
     let year = ["year", "releaseDate", "release_date"]
         .iter()
         .find_map(|k| string(&v[*k]).and_then(|d| d.get(..4)?.parse().ok()))

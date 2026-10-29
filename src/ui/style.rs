@@ -167,15 +167,19 @@ pub fn install_fonts(ctx: &egui::Context) {
         ("Mono-Bold", include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf")),
         ("Inter", include_bytes!("../../assets/fonts/Inter-Regular.ttf")),
         ("Keys", include_bytes!("../../assets/fonts/NotoSansSymbols2-Keys.ttf")),
+        // Inter's | alone: Manrope's is the same stroke as its I and l, so "VOD | Action"
+        // read as "VOD I Action".
+        ("Bar", include_bytes!("../../assets/fonts/Inter-Bar.ttf")),
     ] {
         fonts.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
     }
     let fallbacks = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     let chain = |first: &str| [vec![first.to_string(), "Inter".to_string(), "Keys".to_string()], fallbacks.clone()].concat();
-    fonts.families.insert(FontFamily::Proportional, chain("Manrope"));
-    fonts.families.insert(typography::semibold(), chain("Manrope-SemiBold"));
-    fonts.families.insert(typography::bold(), chain("Manrope-Bold"));
-    fonts.families.insert(typography::extrabold(), chain("Manrope-ExtraBold"));
+    let manrope = |weight: &str| [vec!["Bar".to_string()], chain(weight)].concat();
+    fonts.families.insert(FontFamily::Proportional, manrope("Manrope"));
+    fonts.families.insert(typography::semibold(), manrope("Manrope-SemiBold"));
+    fonts.families.insert(typography::bold(), manrope("Manrope-Bold"));
+    fonts.families.insert(typography::extrabold(), manrope("Manrope-ExtraBold"));
     fonts.families.insert(FontFamily::Monospace, chain("Mono"));
     fonts.families.insert(FontFamily::Name("mono-bold".into()), chain("Mono-Bold"));
     ctx.set_fonts(fonts);

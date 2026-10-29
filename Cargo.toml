@@ -31,6 +31,9 @@ zune-jpeg = "0.5"
 png = "0.18"
 image-webp = "0.2"
 thiserror = "2"
+# Channel names arrive with letters and their accents apart (o + ¨), which egui draws
+# side by side; composed they're one glyph.
+unicode-normalization = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
