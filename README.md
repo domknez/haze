@@ -107,6 +107,11 @@ Secret Service), never in the settings files.
 
 ## Install
 
+Downloads for macOS (Apple Silicon and Intel, ffmpeg built in), Windows and Linux are
+on the [releases page](https://github.com/domknez/haze/releases).
+
+### From source
+
 haze links against ffmpeg's libraries (libavcodec, libavformat, libswscale,
 libswresample) for demuxing and decoding.
 
@@ -120,6 +125,10 @@ sudo apt install libavcodec-dev libavformat-dev libswscale-dev libswresample-dev
 cargo build --release
 ./target/release/haze
 ```
+
+For a binary with ffmpeg linked in (as the macOS release is), build the small static
+ffmpeg first: `scripts/build-ffmpeg.sh target/ffmpeg`, then
+`PKG_CONFIG_PATH=target/ffmpeg/lib/pkgconfig cargo build --release --features static-ffmpeg`.
 
 ## Under the hood
 

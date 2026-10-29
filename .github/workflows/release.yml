@@ -1,0 +1,170 @@
+name: Release
+
+# Push a tag matching the version in Cargo.toml (e.g. v0.1.0) to build every platform
+# and publish a GitHub Release with the downloads attached. Run it by hand from the
+# Actions tab for a dry run: everything is built and uploaded as workflow artifacts,
+# nothing is published.
+#
+# macOS signing is optional. Without these secrets the app is ad-hoc signed and users
+# allow it once under System Settings → Privacy & Security. With them it is signed
+# with your Developer ID and notarized:
+#   MACOS_CERTIFICATE           base64 of the "Developer ID Application" .p12
+#   MACOS_CERTIFICATE_PASSWORD  its export password
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD  for notarization (app-specific password)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS (universal)
+    needs: version
+    runs-on: macos-latest
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      # nasm for the Intel build's assembly; pkg-config to find the ffmpeg built here.
+      - run: brew install nasm pkg-config
+      - name: Cache ffmpeg
+        uses: actions/cache@v6
+        with:
+          path: target/ffmpeg-*
+          key: ffmpeg-macos-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Import Developer ID certificate
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(openssl rand -hex 16)
+          security create-keychain -p "$pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$pass" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$pass" "$keychain" >/dev/null
+          security list-keychains -d user | xargs security list-keychains -d user -s "$keychain"
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Build, sign and package
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: ./scripts/bundle-macos.sh
+      - name: Smoke test
+        run: ./dist/haze.app/Contents/MacOS/haze help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  linux:
+    name: Linux (${{ matrix.arch }})
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-24.04
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System libraries
+        run: ./.github/linux-deps.sh
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          name="haze-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}"
+          mkdir -p "stage/$name" dist
+          cp target/release/haze README.md LICENSE assets/linux/haze.desktop "stage/$name/"
+          cp assets/haze-icon-pack/png/haze-256.png "stage/$name/haze.png"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+
+  windows:
+    name: Windows (x64)
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: ffmpeg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/windows-ffmpeg.sh
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package
+        shell: bash
+        run: |
+          name="haze-${{ needs.version.outputs.version }}-windows-x64"
+          mkdir -p "dist/$name"
+          cp target/release/haze.exe README.md LICENSE "dist/$name/"
+          # ffmpeg's libraries go beside haze.exe (LGPL builds, see BtbN/FFmpeg-Builds).
+          cp "$FFMPEG_BIN"/*.dll "dist/$name/"
+          "dist/$name/haze.exe" help
+          cd dist && 7z a "$name.zip" "$name" >/dev/null
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.zip
+
+  release:
+    name: publish
+    needs: [version, macos, linux, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "haze ${{ needs.version.outputs.version }}" \
+            --notes-file .github/release-notes.md \
+            --generate-notes
