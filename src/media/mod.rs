@@ -13,7 +13,7 @@ mod video;
 
 use crate::output::Output;
 pub use frame::VideoFrame;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
@@ -77,6 +77,9 @@ pub struct Shared {
     /// Threads still playing out the end of the stream; the last one to finish
     /// marks it ended.
     finishing: AtomicU8,
+    /// How much later than the output's own account the picture shows, in
+    /// milliseconds: for speakers that take longer than they say.
+    picture_delay_ms: AtomicI32,
     /// Where to carry on after a pause the output didn't keep its audio through.
     resume_at: Mutex<Option<f64>>,
     /// A problem worth telling about that didn't stop playback (e.g. the speaker
@@ -152,6 +155,7 @@ impl Player {
             paused: AtomicBool::new(false),
             epoch: AtomicU64::new(0),
             finishing: AtomicU8::new(0),
+            picture_delay_ms: AtomicI32::new(0),
             resume_at: Mutex::new(None),
             notice: Mutex::new(None),
             repaint: Box::new(repaint),
@@ -195,6 +199,12 @@ impl Player {
         self.shared.paused.store(paused, Ordering::Relaxed);
         self.shared.clock.set_paused(paused);
         (self.shared.repaint)();
+    }
+
+    /// Show the picture `ms` later (or earlier, if negative) than the output says
+    /// its sound is heard.
+    pub fn set_picture_delay(&self, ms: i32) {
+        self.shared.picture_delay_ms.store(ms, Ordering::Relaxed);
     }
 
     pub fn set_volume(&self, volume: f32) {

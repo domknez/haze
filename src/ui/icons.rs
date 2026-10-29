@@ -25,6 +25,7 @@ pub enum Icon {
     Chevrons,
     /// Add (playlists).
     Plus,
+    Minus,
     Star,
     /// Star outline: "not a favourite yet".
     StarOutline,
@@ -175,6 +176,9 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
         Icon::Close => {
             line(p(r, 0.22, 0.22), p(r, 0.78, 0.78));
             line(p(r, 0.78, 0.22), p(r, 0.22, 0.78));
+        }
+        Icon::Minus => {
+            line(p(r, 0.2, 0.5), p(r, 0.8, 0.5));
         }
         Icon::Plus => {
             line(p(r, 0.5, 0.2), p(r, 0.5, 0.8));

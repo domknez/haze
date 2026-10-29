@@ -63,6 +63,8 @@ pub struct Prefs {
     pub output: Option<String>,
     pub volume: f32,
     pub muted: bool,
+    /// Picture delay per output (by name), in milliseconds.
+    pub picture_delays: BTreeMap<String, i32>,
     /// The settings file changes are saved to; None keeps them in memory.
     file: Option<PathBuf>,
 }
@@ -86,6 +88,11 @@ impl Prefs {
             output: get("output").map(str::to_string),
             volume: get("volume").and_then(|v| v.parse::<f32>().ok()).map_or(0.8, |v| v.clamp(0.0, 1.0)),
             muted: get("muted") == Some("true"),
+            picture_delays: get("picture_delays")
+                .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                .and_then(|v| v.as_object().cloned())
+                .map(|o| o.into_iter().filter_map(|(k, v)| Some((k, i32::try_from(v.as_i64()?).ok()?))).collect())
+                .unwrap_or_default(),
             file: None,
         }
     }
@@ -108,8 +115,11 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 7] {
+    fn values(&self) -> [(&'static str, String); 8] {
+        let delays: serde_json::Map<String, serde_json::Value> =
+            self.picture_delays.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
         [
+            ("picture_delays", if delays.is_empty() { String::new() } else { serde_json::Value::Object(delays).to_string() }),
             ("group", self.group.clone().unwrap_or_default()),
             ("theme", self.theme.key().into()),
             ("source", self.source.clone().unwrap_or_default()),
@@ -141,7 +151,7 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\nsource=a1b2\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\nsource=a1b2\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {
@@ -156,6 +166,17 @@ mod tests {
         let p = Prefs::parse("theme=blue\nvolume=7\noutput=\n");
         assert_eq!(p.theme, Appearance::System);
         assert_eq!((p.output, p.volume, p.muted), (None, 1.0, false));
+        assert!(p.picture_delays.is_empty());
+    }
+
+    #[test]
+    fn keeps_picture_delays_per_output() {
+        let mut p = Prefs::parse("");
+        p.picture_delays.insert("Living room".into(), 350);
+        p.picture_delays.insert("This computer".into(), -50);
+        let text = merge("", &p.values());
+        let back = Prefs::parse(&text);
+        assert_eq!(back.picture_delays, p.picture_delays);
     }
 
     #[test]

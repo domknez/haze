@@ -84,6 +84,9 @@ pub enum Act {
     Popup(Option<Popup>),
     Output(Output),
     Volume(f32),
+    /// Change the picture delay of the output in use by this many milliseconds;
+    /// None sets it back to zero.
+    PictureDelay(Option<i32>),
     ToggleMute,
     ToggleFullscreen,
     ToggleRail,
@@ -331,6 +334,7 @@ impl App {
         let player = Player::open(request, self.output.clone(), self.effective_volume(), move || {
             repaint.request_repaint_after(Duration::from_millis(1))
         });
+        player.set_picture_delay(self.picture_delay());
         self.player = Some(player);
         if let Playing::Live { key } = &playing {
             let source = self.source_id();
@@ -341,6 +345,11 @@ impl App {
         self.playing = Some(playing);
         self.retries = 0;
         self.retry_at = None;
+    }
+
+    /// The picture delay set for the output in use, in milliseconds.
+    pub fn picture_delay(&self) -> i32 {
+        self.prefs.picture_delays.get(self.output.name()).copied().unwrap_or(0)
     }
 
     fn effective_volume(&self) -> f32 {
@@ -585,6 +594,12 @@ impl App {
             if i.consume_key(Modifiers::NONE, Key::L) {
                 acts.push(Act::ToggleRail);
             }
+            if i.consume_key(Modifiers::NONE, Key::CloseBracket) {
+                acts.push(Act::PictureDelay(Some(50)));
+            }
+            if i.consume_key(Modifiers::NONE, Key::OpenBracket) {
+                acts.push(Act::PictureDelay(Some(-50)));
+            }
             if i.consume_key(Modifiers::NONE, Key::ArrowRight) {
                 acts.push(Act::Seek(10.0));
             }
@@ -666,7 +681,9 @@ impl App {
                     p.set_output(o.clone());
                 }
                 self.output = o;
-                self.popup = None;
+                if let Some(p) = &self.player {
+                    p.set_picture_delay(self.picture_delay());
+                }
             }
             Act::Volume(v) => {
                 self.prefs.update(|p| {
@@ -676,6 +693,21 @@ impl App {
                 if let Some(p) = &self.player {
                     p.set_volume(self.effective_volume());
                 }
+            }
+            Act::PictureDelay(change) => {
+                let name = self.output.name().to_string();
+                let ms = change.map_or(0, |d| (self.picture_delay() + d).clamp(-2000, 3000));
+                self.prefs.update(|p| {
+                    if ms == 0 {
+                        p.picture_delays.remove(&name);
+                    } else {
+                        p.picture_delays.insert(name.clone(), ms);
+                    }
+                });
+                if let Some(p) = &self.player {
+                    p.set_picture_delay(ms);
+                }
+                self.show_toast(&format!("Picture delay on {name}: {}", delay_text(ms)));
             }
             Act::ToggleMute => {
                 self.prefs.update(|p| p.muted = !p.muted);
@@ -777,6 +809,11 @@ impl App {
         let key = key_at(self.list[next]);
         self.play(ctx, if movies { Playing::Movie { key } } else { Playing::Live { key } });
     }
+}
+
+/// `+150 ms`, `-50 ms`, `none`.
+pub fn delay_text(ms: i32) -> String {
+    if ms == 0 { "none".into() } else { format!("{ms:+} ms") }
 }
 
 impl eframe::App for App {

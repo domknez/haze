@@ -204,7 +204,8 @@ impl Feeder {
     /// how long it takes to be heard.
     fn update_clock(&self, start: Option<f64>, written: usize) {
         let Some(start) = start else { return };
-        let behind = (self.sink.pending_frames() + self.sink.latency_frames()) as f64 / f64::from(RATE);
+        let delay = f64::from(self.shared.picture_delay_ms.load(Ordering::Relaxed)) / 1000.0;
+        let behind = (self.sink.pending_frames() + self.sink.latency_frames()) as f64 / f64::from(RATE) + delay;
         let heard = start + (written / 2) as f64 / f64::from(RATE) - behind;
         let clock = &self.shared.clock;
         if clock.now().is_none_or(|now| (now - heard).abs() > CLOCK_SLACK) {

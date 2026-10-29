@@ -68,12 +68,43 @@ impl App {
             ui.add_space(4.0);
             ui.label(egui::RichText::new("Looking for AirPlay speakers…").font(typography::secondary()).color(colors().faint));
         }
-        ui.add_space(6.0);
+        ui.add_space(8.0);
+        self.picture_delay_row(ui, acts);
+        ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("The picture waits for the speaker, so sound and lips stay in sync.")
-                .font(typography::secondary())
-                .color(colors().faint),
+            egui::RichText::new(
+                "The picture waits for the speaker. Lips move before the sound? Delay the picture more ( ] ); after it, less ( [ ).",
+            )
+            .font(typography::secondary())
+            .color(colors().faint),
         );
+    }
+
+    /// Picture delay for the output in use: − value +, the value resets it.
+    fn picture_delay_row(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        let p = colors();
+        let ms = self.picture_delay();
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Picture delay").font(typography::small_strong()).color(p.text));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::icon_button(ui, Icon::Plus, 28.0, p.text, "Later (])").clicked() {
+                    acts.push(Act::PictureDelay(Some(50)));
+                }
+                let value = egui::RichText::new(crate::ui::app::delay_text(ms)).font(typography::meta()).color(if ms == 0 {
+                    p.faint
+                } else {
+                    p.accent
+                });
+                let resp = ui.add_sized([64.0, 28.0], egui::Button::new(value).frame(false));
+                if ms != 0 && resp.on_hover_text("Back to none").clicked() {
+                    acts.push(Act::PictureDelay(None));
+                }
+                if widgets::icon_button(ui, Icon::Minus, 28.0, p.text, "Earlier ([)").clicked() {
+                    acts.push(Act::PictureDelay(Some(-50)));
+                }
+            });
+        });
     }
 
     fn sources_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
