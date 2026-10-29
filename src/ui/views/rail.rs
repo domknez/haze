@@ -360,7 +360,8 @@ impl App {
         let on = playing == Some(movie.key.as_str());
         // The year shows below; `Dune (2021)` reads as `Dune`.
         let name = movie.year.and_then(|y| movie.name.strip_suffix(&format!(" ({y})"))).unwrap_or(&movie.name);
-        if self.poster_row(ui, name, movie.poster.as_deref(), &meta, on).clicked() {
+        let watched = self.progress.fraction(&self.source_id(), &movie.key);
+        if self.poster_row(ui, name, movie.poster.as_deref(), &meta, on, watched).clicked() {
             acts.push(Act::PlayMovie(movie.key.clone()));
         }
     }
@@ -374,13 +375,22 @@ impl App {
             n => Some(format!("{n} episodes")),
         };
         let meta = [series.year.map(|y| y.to_string()), series.rating.map(|r| format!("★ {r:.1}")), episodes, Some(series.group.clone())];
-        if self.poster_row(ui, &series.name, series.poster.as_deref(), &meta, false).clicked() {
+        if self.poster_row(ui, &series.name, series.poster.as_deref(), &meta, false, None).clicked() {
             acts.push(Act::OpenSeries(Some(index)));
         }
     }
 
     /// A movie or series: its poster, name, and a line of what's known about it.
-    fn poster_row(&mut self, ui: &mut egui::Ui, name: &str, poster: Option<&str>, meta: &[Option<String>], on: bool) -> egui::Response {
+    /// `watched`: how much of it was seen (1 when all of it).
+    fn poster_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        poster: Option<&str>,
+        meta: &[Option<String>],
+        on: bool,
+        watched: Option<f32>,
+    ) -> egui::Response {
         let p = colors();
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
         if on || resp.hovered() {
@@ -394,7 +404,8 @@ impl App {
             None => widgets::logo_tile(ui.painter(), frame, name, None, None),
         }
         let x = frame.right() + 12.0;
-        let w = rect.right() - x - 8.0;
+        let w = rect.right() - x - 8.0 - if watched.is_some() { 22.0 } else { 0.0 };
+        watched_mark(ui, rect, frame, watched);
         let title = widgets::ellipsize(ui, name, typography::item(), p.text, w);
         ui.painter().galley(pos2(x, rect.center().y - title.size().y + 1.0), title, p.text);
         let meta: Vec<&str> = meta.iter().flatten().map(String::as_str).collect();
@@ -412,7 +423,10 @@ impl App {
             ui.painter().rect_filled(rect, CornerRadius::same(11), if on { p.hl_strong } else { p.hl });
         }
         let x = rect.left() + 14.0;
-        let w = rect.right() - x - 8.0;
+        let watched = self.progress.fraction(&self.source_id(), &episode.key);
+        let w = rect.right() - x - 8.0 - if watched.is_some() { 22.0 } else { 0.0 };
+        let track = Rect::from_min_max(pos2(x - 6.0, rect.top() + 6.0), pos2(x - 3.0, rect.bottom() - 6.0));
+        watched_mark(ui, rect, track, watched);
         let title = if episode.title.is_empty() { format!("Episode {}", episode.number) } else { episode.title.clone() };
         let title = widgets::ellipsize(ui, &title, typography::item(), p.text, w);
         ui.painter().galley(pos2(x, rect.center().y - title.size().y + 1.0), title, p.text);
@@ -423,6 +437,27 @@ impl App {
             acts.push(Act::PlayEpisode(index));
         }
     }
+}
+
+/// How much of a movie or episode was seen: while part of it was, a bar filling
+/// `track` (a thin strip fills bottom up, a poster along its bottom edge); once all
+/// of it was, a tick at the right of `row`.
+fn watched_mark(ui: &egui::Ui, row: Rect, track: Rect, watched: Option<f32>) {
+    let p = colors();
+    let Some(f) = watched else { return };
+    if f >= 1.0 {
+        let r = Rect::from_center_size(pos2(row.right() - 18.0, row.center().y), vec2(14.0, 14.0));
+        icons::paint(ui.painter(), r, Icon::Check, p.accent);
+        return;
+    }
+    let (base, filled) = if track.height() > track.width() * 3.0 {
+        (track, Rect::from_min_max(pos2(track.left(), track.bottom() - track.height() * f), track.right_bottom()))
+    } else {
+        let bar = Rect::from_min_max(pos2(track.left(), track.bottom() - 3.0), track.right_bottom());
+        (bar, Rect::from_min_max(bar.min, pos2(bar.left() + bar.width() * f, bar.bottom())))
+    };
+    ui.painter().rect_filled(base, CornerRadius::same(2), p.hl_strong);
+    ui.painter().rect_filled(filled, CornerRadius::same(2), p.accent);
 }
 
 /// The first row of the groups: everything the tab has.

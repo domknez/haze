@@ -59,7 +59,8 @@ Secret Service), never in the settings files.
   `flussonic`, with `catchup-source` templates)
 - **Movies and series:** the provider's video library by category, with posters;
   open a series for its episodes in season order, and the next one starts when an
-  episode ends. Seek bar, ← → to skip 10 seconds
+  episode ends. Movies and episodes **carry on where you left them**, with a bar for how
+  much of each you've seen and a tick on the ones you finished. Seek bar, ← → to skip 10 seconds
 - **Zapping:** ↑ ↓ (or Page Up / Down) through the list on screen; the last channel
   comes back on the next start
 - **Live channels reconnect** by themselves when the provider drops the stream
@@ -131,7 +132,7 @@ src/
   and shows it when the clock reaches it.
 - **Settings** live in `~/Library/Application Support/haze/` (macOS),
   `%APPDATA%\haze\` (Windows) or `~/.config/haze/` (Linux): `settings.conf`,
-  `sources.json`, `marks.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
+  `sources.json`, `marks.json`, `progress.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
 - `haze probe <url> [seconds]` plays a stream without the window and reports what it is
   and how it plays (`HAZE_LOG=trace` adds ffmpeg's own messages);
   `HAZE_NO_HWACCEL=1` decodes in software.

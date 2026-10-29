@@ -15,6 +15,8 @@ The first version of haze:
   their own, favourites included
 - Movies and series from the provider's video library, also sorted out of plain
   playlists; the next episode starts on its own
+- Movies and episodes carry on where they were left; a bar shows how much of each
+  was watched and a tick the ones seen
 - AirPlay 2 and AirPlay 1 output with lip sync, the speaker's buttons, media keys and
   Now Playing; a picture delay per output
 - GPU decoding (VideoToolbox, D3D11, VA-API) and YUV drawn by a shader

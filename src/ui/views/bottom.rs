@@ -305,7 +305,7 @@ fn clock_range(p: &Programme) -> String {
     format!("{}–{}", hhmm(p.start), hhmm(p.stop))
 }
 
-fn duration_text(secs: f64) -> String {
+pub fn duration_text(secs: f64) -> String {
     let s = secs.max(0.0) as u64;
     if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }

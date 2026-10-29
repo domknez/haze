@@ -12,7 +12,7 @@ use super::video::Video;
 use super::views::add_source::SourceForm;
 use crate::iptv::model::{Catalog, Channel, Guide, Programme, Shelf};
 use crate::iptv::time;
-use crate::library::{self, Marks, Source};
+use crate::library::{self, Marks, Progress, Source};
 use crate::media::{Player, Request, Status};
 use crate::output::Output;
 use crate::output::airplay::Discovery;
@@ -81,6 +81,9 @@ pub struct App {
     pub catalog: Load<Catalog>,
     pub guide: Load<Guide>,
     pub marks: Marks,
+    pub progress: Progress,
+    /// When the progress of what plays was kept last.
+    progress_at: Instant,
     pub session: Session,
     pub video: Video,
     pub logos: Logos,
@@ -144,6 +147,8 @@ impl App {
             catalog: Load::Idle,
             guide: Load::Idle,
             marks: Marks::load(),
+            progress: Progress::load(),
+            progress_at: Instant::now(),
             session: Session::default(),
             video: Video::new(),
             logos: Logos::new(ctx),
@@ -260,6 +265,7 @@ impl App {
     fn open(&mut self, ctx: &egui::Context, playing: &Playing) -> Option<Player> {
         let request = self.request_for(playing)?;
         log_info!("playing {}", request.url.split('?').next().unwrap_or(""));
+        self.keep_progress();
         self.session.player = None;
         self.video.clear();
         let repaint = ctx.clone();
@@ -277,13 +283,34 @@ impl App {
             self.show_toast("That can't be played");
             return;
         };
-        if let Playing::Live { key } = &playing {
-            let source = self.source_id();
-            self.marks.watched(&source, key);
-            self.marks_serial += 1;
-            self.prefs.update(|p| p.channel = Some(key.clone()));
+        let source = self.source_id();
+        match &playing {
+            Playing::Live { key } => {
+                self.marks.watched(&source, key);
+                self.marks_serial += 1;
+                self.prefs.update(|p| p.channel = Some(key.clone()));
+            }
+            Playing::Movie { key } | Playing::Episode { episode: crate::iptv::model::Episode { key, .. }, .. } => {
+                if let Some(at) = self.progress.resume_at(&source, key) {
+                    player.seek(at);
+                    self.show_toast(&format!("Carrying on from {} (← goes back)", super::views::duration_text(at)));
+                }
+            }
+            Playing::Catchup { .. } => {}
         }
+        self.progress_at = Instant::now();
         self.session.start(playing, player);
+    }
+
+    /// Keep how far the movie or episode playing got.
+    fn keep_progress(&mut self) {
+        let Some(player) = &self.session.player else { return };
+        let (Some(key), Some(position), Some(duration)) = (self.session.recording_key(), player.position(), player.info().duration) else {
+            return;
+        };
+        let position = position - self.session.start_pts.unwrap_or(0.0);
+        self.progress.record(&self.source_id(), &key, position, duration);
+        self.progress_at = Instant::now();
     }
 
     /// Open what plays again, after the provider dropped it.
@@ -296,6 +323,7 @@ impl App {
     }
 
     fn stop(&mut self) {
+        self.keep_progress();
         self.session.stop();
         self.video.clear();
     }
@@ -477,7 +505,7 @@ impl App {
     fn poll_player(&mut self, ctx: &egui::Context) {
         let Some(player) = &self.session.player else { return };
         let (serial, frame) = player.frame();
-        let (notice, status) = (player.take_notice(), player.status());
+        let (notice, status, duration) = (player.take_notice(), player.status(), player.info().duration);
         if self.session.start_pts.is_none() {
             self.session.start_pts = frame.as_ref().map(|f| f.pts);
         }
@@ -485,11 +513,17 @@ impl App {
         if let Some(notice) = notice {
             self.show_toast(&notice);
         }
+        if status == Status::Playing && self.progress_at.elapsed() >= Duration::from_secs(10) {
+            self.keep_progress();
+        }
         match self.session.next(&status, Instant::now()) {
             Next::Nothing => {}
             Next::Wait(at) => ctx.request_repaint_after(at.saturating_duration_since(Instant::now())),
             Next::Reopen => self.reopen(ctx),
             Next::Ended => {
+                if let (Some(key), Some(duration)) = (self.session.recording_key(), duration) {
+                    self.progress.record(&self.source_id(), &key, duration, duration);
+                }
                 let next = self.catalog.ready().zip(self.session.playing.as_ref()).and_then(|(c, p)| self.browse.next_episode(c, p));
                 if let Some(next) = next {
                     self.play(ctx, next);
@@ -748,6 +782,7 @@ impl App {
         let removed = self.sources.remove(i);
         crate::credentials::clear(&removed.id);
         self.marks.forget_source(&removed.id);
+        self.progress.forget_source(&removed.id);
         library::save_sources(&self.sources);
         if self.active == Some(i) {
             self.stop();
@@ -799,6 +834,10 @@ pub fn delay_text(ms: i32) -> String {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.keep_progress();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         log_trace!("frame {}: {:?}", ctx.cumulative_pass_nr(), ctx.repaint_causes());

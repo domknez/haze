@@ -6,3 +6,5 @@ mod popups;
 mod rail;
 mod stage;
 mod top_bar;
+
+pub use bottom::duration_text;

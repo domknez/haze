@@ -81,6 +81,15 @@ impl Session {
         matches!(self.playing, Some(Playing::Live { .. }))
     }
 
+    /// The key of the movie or episode playing, whose progress is kept.
+    pub fn recording_key(&self) -> Option<String> {
+        match self.playing.as_ref()? {
+            Playing::Movie { key } => Some(key.clone()),
+            Playing::Episode { episode, .. } => Some(episode.key.clone()),
+            Playing::Live { .. } | Playing::Catchup { .. } => None,
+        }
+    }
+
     pub fn paused(&self) -> bool {
         self.player.as_ref().is_some_and(Player::paused)
     }
