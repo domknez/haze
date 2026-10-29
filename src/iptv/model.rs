@@ -108,6 +108,30 @@ impl Episode {
     }
 }
 
+/// Where a playlist group's entries go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shelf {
+    Channels,
+    Movies,
+    Series,
+}
+
+impl Shelf {
+    pub const ALL: [Shelf; 3] = [Shelf::Channels, Shelf::Movies, Shelf::Series];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Shelf::Channels => "channels",
+            Shelf::Movies => "movies",
+            Shelf::Series => "series",
+        }
+    }
+
+    pub fn from_key(k: &str) -> Option<Shelf> {
+        Shelf::ALL.into_iter().find(|s| s.key() == k)
+    }
+}
+
 /// Everything a source offers.
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {

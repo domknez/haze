@@ -1,6 +1,7 @@
 //! The channel list down the left: search, the group, and what's on each channel.
 
 use crate::iptv::time;
+use crate::iptv::model::Shelf;
 use crate::ui::app::{Act, App, Tab};
 use crate::ui::icons::{self, Icon};
 use crate::ui::load::Load;
@@ -82,6 +83,14 @@ impl App {
         let shown: Vec<&(String, usize)> = counts.iter().filter(|(g, _)| needle.is_empty() || g.to_lowercase().contains(&needle)).collect();
         let all = all_label(self.tab);
         let mut chosen = None;
+        // Playlists' groups can be moved between channels, movies and series.
+        let movable = self.source().is_some_and(|s| s.login().is_none());
+        let here = match self.tab {
+            Tab::Movies => Shelf::Movies,
+            Tab::Series => Shelf::Series,
+            _ => Shelf::Channels,
+        };
+        let moved = |g: &str| self.source().is_some_and(|s| s.shelves.contains_key(g));
         egui::ScrollArea::vertical().id_salt(("groups", self.tab)).auto_shrink([false, false]).show_rows(
             ui,
             metrics::GROUP_ROW,
@@ -92,8 +101,25 @@ impl App {
                         0 => (all, total, current.is_none()),
                         _ => (shown[i - 1].0.as_str(), shown[i - 1].1, current.as_deref() == Some(shown[i - 1].0.as_str())),
                     };
-                    if group_row(ui, name, count, on).clicked() {
+                    let row = group_row(ui, name, count, on);
+                    if row.clicked() {
                         chosen = Some(if i == 0 { None } else { Some(name.to_string()) });
+                    }
+                    if i > 0 && movable {
+                        row.context_menu(|ui| {
+                            for (shelf, label) in
+                                [(Shelf::Channels, "Show as channels"), (Shelf::Movies, "Show as movies"), (Shelf::Series, "Show as series")]
+                            {
+                                if shelf != here && ui.button(label).clicked() {
+                                    acts.push(Act::Shelve(name.to_string(), Some(shelf)));
+                                    ui.close();
+                                }
+                            }
+                            if moved(name) && ui.button("Sort automatically").clicked() {
+                                acts.push(Act::Shelve(name.to_string(), None));
+                                ui.close();
+                            }
+                        });
                     }
                 }
             },

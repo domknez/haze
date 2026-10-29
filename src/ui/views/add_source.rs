@@ -20,6 +20,8 @@ enum Mode {
 pub struct SourceForm {
     /// The source being edited (its id), or none for a new one.
     editing: Option<String>,
+    /// The edited source's groups put elsewhere, kept as they were.
+    shelves: std::collections::BTreeMap<String, crate::iptv::model::Shelf>,
     mode: Mode,
     name: String,
     url: String,
@@ -37,6 +39,7 @@ impl SourceForm {
     pub fn new() -> SourceForm {
         SourceForm {
             editing: None,
+            shelves: Default::default(),
             mode: Mode::Link,
             name: String::new(),
             url: String::new(),
@@ -55,7 +58,12 @@ impl SourceForm {
     }
 
     pub fn edit(source: &Source) -> SourceForm {
-        let mut f = SourceForm { editing: Some(source.id.clone()), name: source.name.clone(), ..SourceForm::new() };
+        let mut f = SourceForm {
+            editing: Some(source.id.clone()),
+            name: source.name.clone(),
+            shelves: source.shelves.clone(),
+            ..SourceForm::new()
+        };
         match &source.kind {
             Kind::Playlist { location, epg } => {
                 if location.starts_with("http://") || location.starts_with("https://") {
@@ -112,7 +120,7 @@ impl SourceForm {
             "" => default_name(&kind),
             n => n.to_string(),
         };
-        let source = Source { id: self.editing.clone().unwrap_or_else(library::new_id), name, kind };
+        let source = Source { id: self.editing.clone().unwrap_or_else(library::new_id), name, kind, shelves: self.shelves.clone() };
         let password = self.password.clone();
         self.check = Load::start(ctx, move || {
             let catalog = match &source.kind {

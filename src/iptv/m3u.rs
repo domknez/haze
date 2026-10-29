@@ -7,11 +7,17 @@
 //! http://…/live/1.ts
 //! ```
 //!
-//! Providers' playlists often carry their video library too: entries linking to
-//! `…/movie/…` are movies, and `…/series/…` ones episodes, named `Show S1 E2`.
+//! Providers' playlists often carry their video library too. Where an entry goes:
+//! 1. where the viewer put its group ([`parse_with`]);
+//! 2. else, in playlists whose links don't say (no `…/movie/…` or `…/series/…`
+//!    anywhere), where most of its group looks like it belongs: episode tags
+//!    (`S1 E2`, `1x02`, `Season 1 Episode 2`) make a group series, years
+//!    (`Dune (2021)`) and video links make it movies;
+//! 3. else what its link says: `…/movie/…` and video files are movies, `…/series/…`
+//!    episodes, anything else a channel.
 
-use super::model::{Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series};
-use std::collections::HashMap;
+use super::model::{Catalog, Catchup, CatchupKind, Channel, Episode, Movie, Series, Shelf};
+use std::collections::{BTreeMap, HashMap};
 
 /// The group of channels whose entry names none.
 pub const NO_GROUP: &str = "Other";
@@ -23,11 +29,16 @@ pub fn looks_like_playlist(text: &str) -> bool {
     first.starts_with("#EXTM3U") || first.starts_with("#EXTINF") || first.contains("://")
 }
 
+#[cfg(test)]
 pub fn parse(text: &str) -> Catalog {
+    parse_with(text, &BTreeMap::new())
+}
+
+/// A playlist, with the groups in `shelves` put where the viewer said they belong.
+pub fn parse_with(text: &str, shelves: &BTreeMap<String, Shelf>) -> Catalog {
     let mut catalog = Catalog::default();
     let mut entry: Option<Entry> = None;
-    // Each series' place in `catalog.series`, by its key.
-    let mut series_at: HashMap<String, usize> = HashMap::new();
+    let mut entries: Vec<(Entry, String)> = Vec::new();
     for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
         if line.is_empty() {
             continue;
@@ -59,12 +70,33 @@ pub fn parse(text: &str) -> Catalog {
             // Other directives (#KODIPROP, #EXTBYT, comments) carry nothing we use.
         } else if entry.is_some() || line.contains("://") {
             // A bare URL without #EXTINF is still playable, named after itself.
-            let e = entry.take().unwrap_or_default();
-            match kind_of(line, &e.name) {
-                Kind::Live => catalog.channels.push(e.into_channel(line)),
-                Kind::Movie => catalog.movies.push(e.into_movie(line)),
-                Kind::Episode => e.add_episode(line, &mut catalog.series, &mut series_at),
-            }
+            entries.push((entry.take().unwrap_or_default(), line.to_string()));
+        }
+    }
+    // What each group's entries look like, counted by shelf.
+    let mut looks: HashMap<String, [usize; 3]> = HashMap::new();
+    for (e, url) in &entries {
+        looks.entry(e.group()).or_default()[e.looks(url) as usize] += 1;
+    }
+    // Xtream panels' links say what each entry is, even where live channels and
+    // films share a group name.
+    let links_say = entries.iter().any(|(_, url)| library_path(url));
+    let shelf_of: HashMap<String, Option<Shelf>> = looks
+        .into_iter()
+        .map(|(g, counts)| (g.clone(), shelves.get(&g).copied().or_else(|| if links_say { None } else { majority(counts) })))
+        .collect();
+    let mut series_at: HashMap<String, usize> = HashMap::new();
+    for (e, url) in entries {
+        let shelf = match shelf_of.get(&e.group()).copied().flatten() {
+            // A tagged episode among movies is still an episode.
+            Some(Shelf::Movies) if episode_tag(&e.name).is_some() => Shelf::Series,
+            Some(shelf) => shelf,
+            None => by_link(&url, &e.name),
+        };
+        match shelf {
+            Shelf::Channels => catalog.channels.push(e.into_channel(&url)),
+            Shelf::Movies => catalog.movies.push(e.into_movie(&url)),
+            Shelf::Series => e.add_episode(&url, &mut catalog.series, &mut series_at),
         }
     }
     for s in &mut catalog.series {
@@ -76,65 +108,127 @@ pub fn parse(text: &str) -> Catalog {
     catalog
 }
 
-enum Kind {
-    Live,
-    Movie,
-    Episode,
+/// Where a whole group goes when most of it (and at least three entries) looks the
+/// same way; none leaves each entry to its link.
+fn majority([channels, movies, series]: [usize; 3]) -> Option<Shelf> {
+    let n = channels + movies + series;
+    let most = |k: usize| n >= 3 && k * 10 >= n * 6;
+    if most(series) {
+        Some(Shelf::Series)
+    } else if most(movies + series) {
+        Some(Shelf::Movies)
+    } else {
+        None
+    }
 }
 
-/// What an entry is, by its link (Xtream panels' `/movie/` and `/series/` paths,
-/// or a video file) and its name.
-fn kind_of(url: &str, name: &str) -> Kind {
+/// The path of a link, without the server, query and fragment.
+fn path_of(url: &str) -> &str {
     let path = url.split(['?', '#']).next().unwrap_or(url);
-    let path = path.split_once("://").map_or(path, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p));
+    path.split_once("://").map_or(path, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p))
+}
+
+/// An Xtream panel's link into the video library.
+fn library_path(url: &str) -> bool {
+    let path = path_of(url);
+    path.starts_with("movie/") || path.starts_with("series/")
+}
+
+/// Where an entry goes by its link (Xtream panels' `/movie/` and `/series/` paths,
+/// or a video file) and its name.
+fn by_link(url: &str, name: &str) -> Shelf {
+    let path = path_of(url);
     if path.starts_with("series/") {
-        return Kind::Episode;
+        return Shelf::Series;
     }
     let file = path.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
     let video_file = file.is_some_and(|ext| matches!(ext.as_str(), "mkv" | "mp4" | "m4v" | "avi" | "mov" | "webm"));
     if path.starts_with("movie/") || video_file {
-        if episode_tag(name).is_some() { Kind::Episode } else { Kind::Movie }
+        if episode_tag(name).is_some() { Shelf::Series } else { Shelf::Movies }
     } else {
-        Kind::Live
+        Shelf::Channels
     }
 }
 
-/// `Show Name S1 E2 Title` → (`Show Name`, 1, 2, `Title`); also `S01E02`, `s1.e2`.
+/// An episode tag in a name: `Show Name S1 E2 Title` → (`Show Name`, 1, 2, `Title`).
+/// Also `S01E02`, `s1.e2`, `1x02`, `Season 1 Episode 2`, `Episode 5` and `Ep. 5`
+/// (season 1), and the same in a few other languages.
 fn episode_tag(name: &str) -> Option<(&str, u32, u32, &str)> {
-    let b = name.as_bytes();
-    let digits = |mut j: usize| {
-        let from = j;
-        while j < b.len() && b[j].is_ascii_digit() {
-            j += 1;
-        }
-        (from, j)
-    };
-    let edge = |c: char| c.is_whitespace() || "-–:|.,".contains(c);
-    for i in 0..b.len() {
-        if !matches!(b[i], b'S' | b's') || i > 0 && b[i - 1].is_ascii_alphanumeric() {
-            continue;
-        }
-        let (s0, s1) = digits(i + 1);
-        if s1 == s0 || s1 - s0 > 3 {
-            continue;
-        }
-        let mut j = s1;
-        while j < b.len() && matches!(b[j], b' ' | b'.' | b'-' | b'_') {
-            j += 1;
-        }
-        if j >= b.len() || !matches!(b[j], b'E' | b'e') {
-            continue;
-        }
-        let (e0, end) = digits(j + 1);
-        if end == e0 || end - e0 > 4 || end < b.len() && b[end].is_ascii_alphabetic() {
-            continue;
-        }
-        let (Ok(season), Ok(number)) = (name[s0..s1].parse(), name[e0..end].parse()) else {
-            continue;
-        };
-        return Some((name[..i].trim_end_matches(edge), season, number, name[end..].trim_start_matches(edge)));
+    let low = name.to_ascii_lowercase();
+    let b = low.as_bytes();
+    let edge = |c: char| c.is_whitespace() || "-–:|.,#".contains(c);
+    (0..b.len()).filter(|&i| i == 0 || !b[i - 1].is_ascii_alphanumeric()).find_map(|i| {
+        let (season, number, end) = tag_at(b, i)?;
+        Some((name[..i].trim_end_matches(edge), season, number, name[end..].trim_start_matches(edge)))
+    })
+}
+
+/// A season and episode tag starting at `i`, and where it ends.
+fn tag_at(b: &[u8], i: usize) -> Option<(u32, u32, usize)> {
+    const SEASON: &[&str] = &["season", "staffel", "saison", "sezona", "temporada", "stagione"];
+    const EPISODE: &[&str] = &["episode", "episodio", "epizoda", "folge", "ep"];
+    if let Some(j) = word(b, i, SEASON) {
+        let (s, j) = digits(b, skip(b, j), 3)?;
+        let j = word(b, skip(b, j), EPISODE)?;
+        let (e, j) = digits(b, skip(b, j), 4)?;
+        return Some((s, e, j));
     }
-    None
+    if let Some(j) = word(b, i, EPISODE) {
+        let (e, j) = digits(b, skip(b, j), 4)?;
+        return Some((1, e, j));
+    }
+    if b[i] == b's' {
+        let (s, j) = digits(b, i + 1, 3)?;
+        let j = skip(b, j);
+        if b.get(j) != Some(&b'e') {
+            return None;
+        }
+        let (e, j) = digits(b, j + 1, 4)?;
+        return Some((s, e, j));
+    }
+    // `1x02` after a name (a film can be called `4x4`); at most two digits before
+    // the x, so `1920x1080` isn't one.
+    if i == 0 {
+        return None;
+    }
+    let (s, j) = digits(b, i, 2)?;
+    if b.get(j) != Some(&b'x') {
+        return None;
+    }
+    let (e, j) = digits(b, j + 1, 3)?;
+    Some((s, e, j))
+}
+
+/// The number of at most `max` digits at `j`, and where it ends.
+fn digits(b: &[u8], j: usize, max: usize) -> Option<(u32, usize)> {
+    let k = j + b.get(j..)?.iter().take_while(|c| c.is_ascii_digit()).count();
+    if k == j || k - j > max {
+        return None;
+    }
+    Some((std::str::from_utf8(&b[j..k]).ok()?.parse().ok()?, k))
+}
+
+/// Past spaces and the separators between a tag's parts.
+fn skip(b: &[u8], mut j: usize) -> usize {
+    while j < b.len() && matches!(b[j], b' ' | b'.' | b'-' | b'_' | b',' | b':') {
+        j += 1;
+    }
+    j
+}
+
+/// Past one of `words` at `j`.
+fn word(b: &[u8], j: usize, words: &[&str]) -> Option<usize> {
+    words.iter().find(|w| b[j..].starts_with(w.as_bytes())).map(|w| j + w.len())
+}
+
+/// `Show 05` → (`Show`, 5): a trailing number, for episodes without a tag.
+fn trailing_number(name: &str) -> (&str, Option<u32>) {
+    let digits = name.len() - name.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+    let head = &name[..name.len() - digits];
+    if digits == 0 || digits > 4 || !head.ends_with(|c: char| c.is_whitespace() || "-–:|.,#".contains(c)) {
+        return (name, None);
+    }
+    (head.trim_end_matches(|c: char| c.is_whitespace() || "-–:|.,#".contains(c)), name[head.len()..].parse().ok())
 }
 
 #[derive(Default)]
@@ -191,12 +285,26 @@ impl Entry {
         }
     }
 
+    /// Where the entry looks like it belongs, by its link and its name.
+    fn looks(&self, url: &str) -> Shelf {
+        match by_link(url, &self.name) {
+            Shelf::Channels if episode_tag(&self.name).is_some() => Shelf::Series,
+            Shelf::Channels if super::xtream::year_in(&self.name).is_some() => Shelf::Movies,
+            shelf => shelf,
+        }
+    }
+
     fn add_episode(self, url: &str, series: &mut Vec<Series>, at: &mut HashMap<String, usize>) {
-        let (show, season, number, title) = match episode_tag(&self.name) {
-            Some((show, s, n, t)) if !show.is_empty() => (show, s, n, t),
-            _ => (self.name.as_str(), 1, 0, ""),
-        };
         let group = self.group();
+        let (show, season, number, title) = match episode_tag(&self.name) {
+            // `S1 E2 Pilot` names only the episode: the group is the series.
+            Some(("", s, n, t)) => (group.as_str(), s, Some(n), t),
+            Some((show, s, n, t)) => (show, s, Some(n), t),
+            None => {
+                let (show, n) = trailing_number(&self.name);
+                (show, 1, n, "")
+            }
+        };
         let key = format!("{group}/{show}");
         let i = *at.entry(key.clone()).or_insert_with(|| {
             series.push(Series {
@@ -204,7 +312,7 @@ impl Entry {
                 name: show.to_string(),
                 poster: None,
                 year: super::xtream::year_in(show),
-                group,
+                group: group.clone(),
                 rating: None,
                 episodes: Vec::new(),
             });
@@ -214,7 +322,7 @@ impl Entry {
         if s.poster.is_none() {
             s.poster = attr(&self.attrs, "tvg-logo").map(str::to_string);
         }
-        let number = if number == 0 { s.episodes.len() as u32 + 1 } else { number };
+        let number = number.unwrap_or(s.episodes.len() as u32 + 1);
         s.episodes.push(Episode { key: url.to_string(), season, number, title: title.to_string(), url: url.to_string() });
     }
 }
@@ -357,10 +465,80 @@ http://nas.local/videos/holiday.mp4
     }
 
     #[test]
+    fn whole_groups_follow_what_most_of_them_look_like() {
+        let c = parse(
+            r#"#EXTM3U
+#EXTINF:-1 group-title="VOD | Action",Heat (1995)
+http://cdn.tv/vod/1.m3u8
+#EXTINF:-1 group-title="VOD | Action",Ronin (1998)
+http://cdn.tv/vod/2.m3u8
+#EXTINF:-1 group-title="VOD | Action",Collateral
+http://cdn.tv/vod/3.m3u8
+#EXTINF:-1 group-title="Shows",Lost 1x01
+http://cdn.tv/s/1.m3u8
+#EXTINF:-1 group-title="Shows",Lost 1x02
+http://cdn.tv/s/2.m3u8
+#EXTINF:-1 group-title="Shows",Lost 1x03
+http://cdn.tv/s/3.m3u8
+#EXTINF:-1 group-title="Cinema",Cinema 1
+http://cdn.tv/live/c1.m3u8
+#EXTINF:-1 group-title="Cinema",Cinema 2
+http://cdn.tv/live/c2.m3u8
+#EXTINF:-1 group-title="Cinema",Classics (1950s)
+http://cdn.tv/live/c3.m3u8
+"#,
+        );
+        let movies: Vec<_> = c.movies.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(movies, ["Heat (1995)", "Ronin (1998)", "Collateral"], "the whole group, with a year or not");
+        assert_eq!(c.channels.len(), 3, "a few odd names don't move a group of channels");
+        let series: Vec<_> = c.series.iter().map(|s| (s.name.as_str(), s.episodes.len())).collect();
+        assert_eq!(series, [("Lost", 3)]);
+        let c = parse("#EXTINF:-1,Tom 01\nhttp://cdn.tv/series/u/p/1.mp4\n#EXTINF:-1,Tom 02\nhttp://cdn.tv/series/u/p/2.mp4\n");
+        let series: Vec<_> = c.series.iter().map(|s| (s.name.as_str(), s.episodes.len())).collect();
+        assert_eq!(series, [("Tom", 2)], "untagged episodes are gathered by name");
+
+        let shelves = BTreeMap::from([("Cinema".to_string(), Shelf::Movies), ("VOD | Action".to_string(), Shelf::Channels)]);
+        let c = parse_with(&c_text(), &shelves);
+        assert_eq!((c.movies.len(), c.channels.len()), (3, 3), "the viewer's choice wins");
+    }
+
+    fn c_text() -> String {
+        ["VOD | Action", "VOD | Action", "VOD | Action", "Cinema", "Cinema", "Cinema"]
+            .iter()
+            .enumerate()
+            .map(|(i, g)| format!("#EXTINF:-1 group-title=\"{g}\",Item ({})\nhttp://cdn.tv/{i}.m3u8\n", 2000 + i))
+            .collect()
+    }
+
+    #[test]
+    fn links_decide_where_they_say() {
+        let c = parse(
+            r#"#EXTM3U
+#EXTINF:-1 group-title="Kids",Toon One
+http://line.tv/u/p/1
+#EXTINF:-1 group-title="Kids",Bluey S1 E1
+http://line.tv/series/u/p/11.mkv
+#EXTINF:-1 group-title="Kids",Bluey S1 E2
+http://line.tv/series/u/p/12.mkv
+#EXTINF:-1 group-title="Kids",Bluey S1 E3
+http://line.tv/series/u/p/13.mkv
+"#,
+        );
+        assert_eq!((c.channels.len(), c.series.len()), (1, 1), "a channel sharing a group name with a series stays");
+    }
+
+    #[test]
     fn reads_episode_tags() {
         assert_eq!(episode_tag("7 Bears S1 E3"), Some(("7 Bears", 1, 3, "")));
         assert_eq!(episode_tag("Dark - s02.e05 - Lost"), Some(("Dark", 2, 5, "Lost")));
         assert_eq!(episode_tag("Sons S3E12"), Some(("Sons", 3, 12, "")));
+        assert_eq!(episode_tag("Friends 2x05 The One"), Some(("Friends", 2, 5, "The One")));
+        assert_eq!(episode_tag("Lost - Season 3 Episode 7"), Some(("Lost", 3, 7, "")));
+        assert_eq!(episode_tag("Dark Staffel 1 Folge 4"), Some(("Dark", 1, 4, "")));
+        assert_eq!(episode_tag("Vikings Ep. 12"), Some(("Vikings", 1, 12, "")));
+        assert_eq!(episode_tag("Movie 1920x1080"), None);
+        assert_eq!(episode_tag("4x4"), None);
+        assert_eq!(episode_tag("Epic Sports 2"), None);
         assert_eq!(episode_tag("Superman Returns"), None);
         assert_eq!(episode_tag("SES Astra"), None);
     }

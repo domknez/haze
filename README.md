@@ -31,10 +31,14 @@ Add as many as you like and switch between them from the top bar. Each is checke
 | **M3U file** | a playlist on disk — or drop the file on the window |
 | **Xtream Codes** | server, user name and password: live channels, the guide, the archive, movies and series from one login; account status and expiry in the source menu |
 
-Provider playlists that carry the video library too (the `…/movie/…` and
-`…/series/…` entries of Xtream panels' `m3u_plus` links) are sorted out on their own:
-movies go to *Movies*, episodes are gathered into series and seasons under *Series*,
-and only the channels stay in the channel list.
+Playlists that carry a video library too are sorted out on their own: movies go to
+*Movies*, episodes are gathered into series and seasons under *Series*, and only the
+channels stay in the channel list. Xtream panels' `m3u_plus` links say what each entry
+is (`…/movie/…`, `…/series/…`); in other playlists a group goes where most of it
+looks like it belongs — episode tags (`S1 E2`, `1x02`, `Season 1 Episode 2`) make it
+series, years (`Dune (2021)`) and video files make it movies. Where that guesses
+wrong, right-click the group: *Show as channels / movies / series*, remembered for
+the source.
 
 Passwords are kept in the OS keychain (macOS Keychain, Windows Credential Manager,
 Secret Service), never in the settings files.

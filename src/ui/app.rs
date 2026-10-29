@@ -5,7 +5,7 @@ use super::logos::Logos;
 use super::style::{self, colors, metrics};
 use super::video::Video;
 use super::views::add_source::SourceForm;
-use crate::iptv::model::{Catalog, Channel, Episode, Guide, Programme};
+use crate::iptv::model::{Catalog, Channel, Episode, Guide, Programme, Shelf};
 use crate::iptv::time;
 use crate::library::{self, Marks, Source};
 use crate::media::{Player, Request, Status};
@@ -107,6 +107,9 @@ pub enum Act {
     ToggleFavorite(String),
     Tab(Tab),
     Group(Option<String>),
+    /// Put a playlist group with the channels, movies or series; None leaves it to
+    /// what it looks like.
+    Shelve(String, Option<Shelf>),
     SwitchSource(usize),
     Popup(Option<Popup>),
     Output(Output),
@@ -781,6 +784,24 @@ impl App {
                     self.group = g;
                 }
             },
+            Act::Shelve(group, shelf) => {
+                let Some(i) = self.active else { return };
+                let source = &mut self.sources[i];
+                match shelf {
+                    Some(s) => source.shelves.insert(group.clone(), s),
+                    None => source.shelves.remove(&group),
+                };
+                library::save_sources(&self.sources);
+                // Read again with the group where it now belongs; what plays goes on.
+                self.switch_source(ctx, i, None);
+                let place = match shelf {
+                    Some(Shelf::Channels) => "with the channels",
+                    Some(Shelf::Movies) => "under Movies",
+                    Some(Shelf::Series) => "under Series",
+                    None => "where it looks like it belongs",
+                };
+                self.show_toast(&format!("{group} now shows {place}"));
+            }
             Act::ToggleGroups => self.groups_open = !self.groups_open,
             Act::SwitchSource(i) => {
                 self.popup = None;

@@ -2,10 +2,10 @@
 //! what each offers, and favourites and recently watched channels.
 
 use crate::credentials;
-use crate::iptv::model::{Catalog, CatchupKind, Channel, Guide, Programme};
+use crate::iptv::model::{Catalog, CatchupKind, Channel, Guide, Programme, Shelf};
 use crate::iptv::{http, m3u, time, xmltv, xtream};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,6 +13,8 @@ pub struct Source {
     pub id: String,
     pub name: String,
     pub kind: Kind,
+    /// Playlist groups the viewer put elsewhere (channels, movies, series).
+    pub shelves: BTreeMap<String, Shelf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,12 +51,16 @@ impl Source {
     }
 
     fn to_json(&self) -> Value {
-        match &self.kind {
+        let mut v = match &self.kind {
             Kind::Playlist { location, epg } => {
                 json!({"id": self.id, "name": self.name, "kind": "playlist", "location": location, "epg": epg})
             }
             Kind::Xtream { server, user } => json!({"id": self.id, "name": self.name, "kind": "xtream", "server": server, "user": user}),
+        };
+        if !self.shelves.is_empty() {
+            v["shelves"] = self.shelves.iter().map(|(g, s)| (g.clone(), Value::from(s.key()))).collect::<serde_json::Map<_, _>>().into();
         }
+        v
     }
 
     fn from_json(v: &Value) -> Option<Source> {
@@ -64,7 +70,13 @@ impl Source {
             "xtream" => Kind::Xtream { server: s("server")?, user: s("user")? },
             _ => return None,
         };
-        Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind })
+        let shelves = v["shelves"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(g, s)| Some((g.clone(), Shelf::from_key(s.as_str()?)?)))
+            .collect();
+        Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind, shelves })
     }
 }
 
@@ -112,7 +124,7 @@ pub fn fetch(source: &Source) -> Result<Catalog, String> {
             if !m3u::looks_like_playlist(&text) {
                 return Err("that address gives a web page or other text, not a playlist".into());
             }
-            let mut c = m3u::parse(&text);
+            let mut c = m3u::parse_with(&text, &source.shelves);
             if c.channels.is_empty() && c.movies.is_empty() && c.series.is_empty() {
                 return Err("the playlist has no channels".into());
             }
@@ -307,8 +319,8 @@ mod tests {
     #[test]
     fn sources_round_trip() {
         for s in [
-            Source { id: "a".into(), name: "Home".into(), kind: Kind::Playlist { location: "http://x/list.m3u".into(), epg: None } },
-            Source { id: "b".into(), name: "XC".into(), kind: Kind::Xtream { server: "http://x:8080".into(), user: "me".into() } },
+            Source { id: "a".into(), name: "Home".into(), kind: Kind::Playlist { location: "http://x/list.m3u".into(), epg: None }, shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]) },
+            Source { id: "b".into(), name: "XC".into(), kind: Kind::Xtream { server: "http://x:8080".into(), user: "me".into() }, shelves: BTreeMap::new() },
         ] {
             assert_eq!(Source::from_json(&s.to_json()), Some(s));
         }
@@ -316,6 +328,7 @@ mod tests {
             id: "a".into(),
             name: "Home".into(),
             kind: Kind::Playlist { location: "https://cdn.example.com/a/b.m3u?x".into(), epg: None },
+            shelves: BTreeMap::new(),
         };
         assert_eq!(s.detail(), "m3u · cdn.example.com");
     }
