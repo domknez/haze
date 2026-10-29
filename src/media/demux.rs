@@ -275,8 +275,11 @@ fn set_discard(input: &mut ffmpeg::format::context::Input, index: usize, discard
 
 fn video_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Video, String> {
     let mut ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| e.to_string())?;
-    // Frame threads: 1080p50 H.264 on one core is too much for older machines.
-    ctx.set_threading(ffmpeg::codec::threading::Config { kind: ffmpeg::codec::threading::Type::Frame, count: 0 });
+    if !super::hwaccel::attach(&mut ctx) {
+        // In software, a few frame threads: 1080p50 H.264 on one core is too much for
+        // older machines, and every thread holds frames of its own.
+        ctx.set_threading(ffmpeg::codec::threading::Config { kind: ffmpeg::codec::threading::Type::Frame, count: 4 });
+    }
     ctx.decoder().video().map_err(|e| format!("can't decode the picture: {e}"))
 }
 

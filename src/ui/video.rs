@@ -219,7 +219,22 @@ impl Gl {
                 }
                 Ok(t)
             };
-            Ok(Gl { program, vao, textures: [make_texture()?, make_texture()?, make_texture()?] })
+            let textures = [make_texture()?, make_texture()?, make_texture()?];
+            // NV12 leaves the third unit unused; it still needs something to sample.
+            gl.bind_texture(glow::TEXTURE_2D, Some(textures[2]));
+            let grey = [128u8];
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::R8 as i32,
+                1,
+                1,
+                0,
+                glow::RED,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(&grey)),
+            );
+            Ok(Gl { program, vao, textures })
         }
     }
 }

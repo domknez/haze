@@ -296,7 +296,11 @@ impl App {
         self.video.clear();
         self.start_pts = None;
         let repaint = ctx.clone();
-        let player = Player::open(request, self.output.clone(), self.effective_volume(), move || repaint.request_repaint());
+        // A zero-delay request draws twice (egui lets layouts settle); a frame of video
+        // needs one pass.
+        let player = Player::open(request, self.output.clone(), self.effective_volume(), move || {
+            repaint.request_repaint_after(Duration::from_millis(1))
+        });
         self.player = Some(player);
         if let Playing::Live { key } = &playing {
             let source = self.source_id();
@@ -709,6 +713,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        log_trace!("frame {}: {:?}", ctx.cumulative_pass_nr(), ctx.repaint_causes());
         self.sync_appearance(&ctx);
         self.logos.begin_frame();
         self.poll(&ctx);
@@ -749,8 +754,9 @@ impl eframe::App for App {
         for act in acts {
             self.apply(&ctx, act);
         }
-        // The programme line and times move on even when nothing else happens.
-        if self.player.is_some() {
+        // The programme line and times move on even when no new frames come (paused,
+        // or sound only).
+        if self.player.as_ref().is_some_and(|p| p.paused() || p.status() != Status::Playing || p.info().video_codec.is_none()) {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
     }

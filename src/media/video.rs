@@ -27,6 +27,7 @@ pub fn run(
     has_audio: bool,
 ) {
     let mut frame = ffmpeg::frame::Video::empty();
+    let mut downloaded = ffmpeg::frame::Video::empty();
     let mut converted = ffmpeg::frame::Video::empty();
     let mut scaler: Option<(ffmpeg::software::scaling::Context, (Pixel, u32, u32))> = None;
     let mut ending = false;
@@ -57,7 +58,13 @@ pub fn run(
         }
         while decoder.receive_frame(&mut frame).is_ok() {
             let pts = frame.timestamp().or(frame.pts()).map_or(0.0, |t| t as f64 * f64::from(time_base));
-            let picture = match VideoFrame::from_decoded(&frame, pts) {
+            // A picture decoded on the GPU comes back to memory (as NV12) first.
+            let frame = match super::hwaccel::download(&frame, &mut downloaded) {
+                Some(true) => &downloaded,
+                Some(false) => continue,
+                None => &frame,
+            };
+            let picture = match VideoFrame::from_decoded(frame, pts) {
                 Some(p) => p,
                 None => {
                     // Other pixel formats (10-bit, 4:2:2, …) become 8-bit 4:2:0.
@@ -77,7 +84,7 @@ pub fn run(
                         .map(|s| (s, key));
                     }
                     let Some((s, _)) = &mut scaler else { continue };
-                    if s.run(&frame, &mut converted).is_err() {
+                    if s.run(frame, &mut converted).is_err() {
                         continue;
                     }
                     converted.set_color_space(frame.color_space());

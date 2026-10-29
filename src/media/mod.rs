@@ -8,6 +8,7 @@ mod clock;
 mod demux;
 pub mod frame;
 mod hls;
+mod hwaccel;
 mod video;
 
 use crate::output::Output;
