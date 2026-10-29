@@ -5,6 +5,7 @@ use super::load::Load;
 use super::session::Playing;
 use crate::iptv::model::{Catalog, Episode};
 use crate::library::Marks;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tab {
@@ -62,6 +63,9 @@ pub struct Browse {
     /// The series whose episodes the rail lists (its index in the catalog), and them.
     pub open_series: Option<usize>,
     pub episodes: Load<Vec<Episode>>,
+    /// Groups the viewer hid, left out everywhere unless `show_hidden`.
+    pub hidden: BTreeSet<String>,
+    pub show_hidden: bool,
     /// Indices of what the rail lists, and what they were worked out for.
     pub list: Vec<usize>,
     list_key: Option<ListKey>,
@@ -91,6 +95,8 @@ impl Browse {
             group_filter: String::new(),
             open_series: None,
             episodes: Load::Idle,
+            hidden: BTreeSet::new(),
+            show_hidden: false,
             list: Vec::new(),
             list_key: None,
         }
@@ -107,11 +113,28 @@ impl Browse {
     /// A catalog came in: count its groups, and pick `last_group` among the channels
     /// if it still has it.
     pub fn catalog_arrived(&mut self, c: &Catalog, last_group: Option<&String>) {
-        self.channels.counts = count(&c.groups, c.channels.iter().map(|ch| &ch.group));
-        self.movies.counts = count(&c.movie_groups, c.movies.iter().map(|m| &m.group));
-        self.series.counts = count(&c.series_groups, c.series.iter().map(|s| &s.group));
-        self.channels.picked = last_group.filter(|g| c.groups.contains(g)).cloned();
+        self.count_groups(c);
+        self.channels.picked = last_group.filter(|g| self.shows(g) && c.groups.contains(g)).cloned();
+    }
+
+    /// Count the groups shown, after hiding or showing some.
+    pub fn count_groups(&mut self, c: &Catalog) {
+        let shown = |groups: &[String]| groups.iter().filter(|g| self.shows(g)).cloned().collect::<Vec<_>>();
+        let (channels, movies, series) = (shown(&c.groups), shown(&c.movie_groups), shown(&c.series_groups));
+        self.channels.counts = count(&channels, c.channels.iter().map(|ch| &ch.group));
+        self.movies.counts = count(&movies, c.movies.iter().map(|m| &m.group));
+        self.series.counts = count(&series, c.series.iter().map(|s| &s.group));
+        for groups in [&mut self.channels, &mut self.movies, &mut self.series] {
+            if groups.picked.as_ref().is_some_and(|g| !groups.counts.iter().any(|(n, _)| n == g)) {
+                groups.picked = None;
+            }
+        }
         self.relist();
+    }
+
+    /// Whether `group`'s entries show: it isn't hidden, or hidden ones show.
+    pub fn shows(&self, group: &str) -> bool {
+        self.show_hidden || !self.hidden.contains(group)
     }
 
     /// Work the list out again on the next refresh.
@@ -168,9 +191,9 @@ impl Browse {
         }
         let needle = self.search.trim().to_lowercase();
         let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
-        let in_group = |g: &String| group.as_ref().is_none_or(|picked| g == picked);
+        let in_group = |g: &String| group.as_ref().map_or_else(|| self.shows(g), |picked| g == picked);
         let by_key = |k: &str| catalog.channels.iter().position(|c| c.key == k);
-        let named = |i: &usize| matches(&catalog.channels[*i].name);
+        let named = |i: &usize| matches(&catalog.channels[*i].name) && self.shows(&catalog.channels[*i].group);
         self.list = match self.tab {
             Tab::Live => indices(&catalog.channels, |c| in_group(&c.group) && matches(&c.name)),
             Tab::Favorites => marks.favorites(source).filter_map(by_key).filter(named).collect(),
@@ -295,6 +318,22 @@ http://line.tv:80/series/user/pass/102.mkv
         b.pick_group(Some("Films".into()));
         b.tab = Tab::Live;
         assert_eq!(b.groups().picked.as_deref(), Some("News"));
+    }
+
+    #[test]
+    fn hidden_groups_stay_out_until_shown() {
+        let (mut b, c) = browsing(Tab::Live);
+        b.pick_group(Some("Sport".into()));
+        b.hidden.insert("Sport".into());
+        b.count_groups(&c);
+        assert_eq!(b.channels.counts, [("News".to_string(), 2)]);
+        assert_eq!(b.channels.picked, None);
+        assert_eq!(listed(&mut b, &c), ["News One", "News Two"]);
+        b.search = "one".into();
+        assert_eq!(listed(&mut b, &c), ["News One"]);
+        b.show_hidden = true;
+        b.count_groups(&c);
+        assert_eq!(listed(&mut b, &c), ["News One", "Sport One"]);
     }
 
     #[test]

@@ -187,16 +187,28 @@ impl App {
                 acts.push(Act::Theme(a));
             }
         }
+        let hidden = self.source().map_or(0, |s| s.hidden.len());
+        if hidden > 0 {
+            ui.add_space(6.0);
+            heading(ui, "Groups");
+            let sub =
+                if hidden == 1 { "1 group hidden in this source".to_string() } else { format!("{hidden} groups hidden in this source") };
+            if menu_row(ui, Icon::List, "Show hidden groups", Some(&sub), self.browse.show_hidden).clicked() {
+                acts.push(Act::ShowHidden(!self.browse.show_hidden));
+            }
+        }
         ui.add_space(6.0);
         heading(ui, "Keys");
         for (k, what) in [
             ("↑ ↓", "previous / next channel"),
+            ("← →", "back / ahead 10 seconds"),
             ("Space", "pause"),
             ("F", "full screen"),
             ("M", "mute"),
             ("L", "channel list"),
+            ("[ ]", "picture earlier / later"),
             ("⌘F", "search"),
-            ("⌘1–4", "tabs"),
+            ("⌘1–5", "tabs"),
         ] {
             ui.horizontal(|ui| {
                 ui.add_sized([56.0, 18.0], egui::Label::new(egui::RichText::new(k).font(typography::meta()).color(colors().text)));

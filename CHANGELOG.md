@@ -8,6 +8,8 @@ The first version of haze:
   logins, several at once; passwords in the system keychain
 - Live channels with logos, groups, search, favourites and recently watched; zapping
   with ↑ ↓, the last channel back on the next start, reconnecting when a stream drops
+- Hide groups (right-click one): they leave the lists, search and zapping until
+  Settings › Show hidden groups, which lasts until haze quits
 - Guide (XMLTV) with the programme on now and what's next, and catch-up from the
   archive (Xtream, and M3U `catchup` modes)
 - An Xtream panel's playlist link (`get.php`) signs in to the panel's API, for

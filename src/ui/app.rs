@@ -51,6 +51,10 @@ pub enum Act {
     /// Put a playlist group with the channels, movies or series; None leaves it to
     /// what it looks like.
     Shelve(String, Option<Shelf>),
+    /// Hide a group (true) or show it again.
+    Hide(String, bool),
+    /// Show hidden groups, or hide them again.
+    ShowHidden(bool),
     SwitchSource(usize),
     Popup(Option<Popup>),
     Output(Output),
@@ -204,6 +208,7 @@ impl App {
         self.active = Some(i);
         self.prefs.update(|p| p.source = Some(source.id.clone()));
         self.browse.reset();
+        self.browse.hidden = source.hidden.clone();
         self.guide = Load::Idle;
         match catalog {
             Some(c) => {
@@ -660,6 +665,14 @@ impl App {
                 self.browse.pick_group(g);
             }
             Act::Shelve(group, shelf) => self.shelve(ctx, group, shelf),
+            Act::Hide(group, hide) => self.hide(group, hide),
+            Act::ShowHidden(show) => {
+                self.browse.show_hidden = show;
+                self.popup = None;
+                if let Some(c) = self.catalog.ready() {
+                    self.browse.count_groups(c);
+                }
+            }
             Act::ToggleGroups => self.groups_open = !self.groups_open,
             Act::SwitchSource(i) => {
                 self.popup = None;
@@ -773,6 +786,23 @@ impl App {
             None => "where it looks like it belongs",
         };
         self.show_toast(&format!("{group} now shows {place}"));
+    }
+
+    fn hide(&mut self, group: String, hide: bool) {
+        let Some(source) = self.active.and_then(|i| self.sources.get_mut(i)) else { return };
+        if hide {
+            source.hidden.insert(group.clone());
+        } else {
+            source.hidden.remove(&group);
+        }
+        self.browse.hidden = source.hidden.clone();
+        library::save_sources(&self.sources);
+        if let Some(c) = self.catalog.ready() {
+            self.browse.count_groups(c);
+        }
+        if hide && !self.browse.show_hidden {
+            self.show_toast(&format!("{group} is hidden; Settings › Show hidden groups brings it back"));
+        }
     }
 
     fn remove_source(&mut self, ctx: &egui::Context, i: usize) {

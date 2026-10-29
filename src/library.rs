@@ -5,7 +5,7 @@ use crate::credentials;
 use crate::iptv::model::{Catalog, CatchupKind, Channel, Guide, Programme, Shelf};
 use crate::iptv::{http, m3u, time, xmltv, xtream};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +15,8 @@ pub struct Source {
     pub kind: Kind,
     /// Playlist groups the viewer put elsewhere (channels, movies, series).
     pub shelves: BTreeMap<String, Shelf>,
+    /// Groups the viewer hid.
+    pub hidden: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +69,9 @@ impl Source {
             }
             Kind::Xtream { server, user } => json!({"id": self.id, "name": self.name, "kind": "xtream", "server": server, "user": user}),
         };
+        if !self.hidden.is_empty() {
+            v["hidden"] = self.hidden.iter().cloned().collect::<Vec<_>>().into();
+        }
         if !self.shelves.is_empty() {
             v["shelves"] = self.shelves.iter().map(|(g, s)| (g.clone(), Value::from(s.key()))).collect::<serde_json::Map<_, _>>().into();
         }
@@ -82,7 +87,8 @@ impl Source {
         };
         let shelves =
             v["shelves"].as_object().into_iter().flatten().filter_map(|(g, s)| Some((g.clone(), Shelf::from_key(s.as_str()?)?))).collect();
-        Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind, shelves })
+        let hidden = v["hidden"].as_array().into_iter().flatten().filter_map(|g| Some(g.as_str()?.to_string())).collect();
+        Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind, shelves, hidden })
     }
 }
 
@@ -462,6 +468,7 @@ mod tests {
             name: "Home".into(),
             kind: Kind::Playlist { location: location.into(), epg: None },
             shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]),
+            hidden: BTreeSet::new(),
         };
         let (source, login) = link("http://line.tv:8080/get.php?username=me&password=pw&type=m3u_plus").as_xtream().unwrap();
         assert_eq!(source.kind, Kind::Xtream { server: "http://line.tv:8080".into(), user: "me".into() });
@@ -509,12 +516,14 @@ mod tests {
                 name: "Home".into(),
                 kind: Kind::Playlist { location: "http://x/list.m3u".into(), epg: None },
                 shelves: BTreeMap::from([("VOD".into(), Shelf::Movies)]),
+                hidden: BTreeSet::from(["Adult".into()]),
             },
             Source {
                 id: "b".into(),
                 name: "XC".into(),
                 kind: Kind::Xtream { server: "http://x:8080".into(), user: "me".into() },
                 shelves: BTreeMap::new(),
+                hidden: BTreeSet::new(),
             },
         ] {
             assert_eq!(Source::from_json(&s.to_json()), Some(s));
@@ -524,6 +533,7 @@ mod tests {
             name: "Home".into(),
             kind: Kind::Playlist { location: "https://cdn.example.com/a/b.m3u?x".into(), epg: None },
             shelves: BTreeMap::new(),
+            hidden: BTreeSet::new(),
         };
         assert_eq!(s.detail(), "m3u · cdn.example.com");
     }

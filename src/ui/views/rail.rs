@@ -104,24 +104,32 @@ impl App {
                         0 => (all, total, current.is_none()),
                         _ => (shown[i - 1].0.as_str(), shown[i - 1].1, current.as_deref() == Some(shown[i - 1].0.as_str())),
                     };
-                    let row = group_row(ui, name, count, on);
+                    let hidden = i > 0 && self.browse.hidden.contains(name);
+                    let row = group_row(ui, name, count, on, hidden);
                     if row.clicked() {
                         chosen = Some(if i == 0 { None } else { Some(name.to_string()) });
                     }
-                    if i > 0 && movable {
+                    if i > 0 {
                         row.context_menu(|ui| {
-                            for (shelf, label) in [
-                                (Shelf::Channels, "Show as channels"),
-                                (Shelf::Movies, "Show as movies"),
-                                (Shelf::Series, "Show as series"),
-                            ] {
-                                if shelf != here && ui.button(label).clicked() {
-                                    acts.push(Act::Shelve(name.to_string(), Some(shelf)));
+                            if movable {
+                                for (shelf, label) in [
+                                    (Shelf::Channels, "Show as channels"),
+                                    (Shelf::Movies, "Show as movies"),
+                                    (Shelf::Series, "Show as series"),
+                                ] {
+                                    if shelf != here && ui.button(label).clicked() {
+                                        acts.push(Act::Shelve(name.to_string(), Some(shelf)));
+                                        ui.close();
+                                    }
+                                }
+                                if moved(name) && ui.button("Sort automatically").clicked() {
+                                    acts.push(Act::Shelve(name.to_string(), None));
                                     ui.close();
                                 }
+                                ui.separator();
                             }
-                            if moved(name) && ui.button("Sort automatically").clicked() {
-                                acts.push(Act::Shelve(name.to_string(), None));
+                            if ui.button(if hidden { "Show group" } else { "Hide group" }).clicked() {
+                                acts.push(Act::Hide(name.to_string(), !hidden));
                                 ui.close();
                             }
                         });
@@ -469,7 +477,8 @@ fn all_label(tab: Tab) -> &'static str {
     }
 }
 
-fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool) -> egui::Response {
+/// `hidden`: a group the viewer hid, showing while hidden groups do.
+fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool, hidden: bool) -> egui::Response {
     let p = colors();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::GROUP_ROW), Sense::click());
     if on || resp.hovered() {
@@ -479,8 +488,16 @@ fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool) -> egui::Re
         let bar = Rect::from_min_size(pos2(r.left(), r.center().y - 8.0), vec2(3.0, 16.0));
         ui.painter().rect_filled(bar, CornerRadius::same(2), p.accent);
     }
-    let t = widgets::ellipsize(ui, title, typography::small_strong(), if on { p.text } else { p.dim }, r.width() - 64.0);
-    ui.painter().galley(pos2(r.left() + 12.0, r.center().y - t.size().y / 2.0), t, p.text);
-    ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count.to_string(), typography::meta(), p.faint);
+    let color = if hidden {
+        p.faint
+    } else if on {
+        p.text
+    } else {
+        p.dim
+    };
+    let t = widgets::ellipsize(ui, title, typography::small_strong(), color, r.width() - 64.0);
+    ui.painter().galley(pos2(r.left() + 12.0, r.center().y - t.size().y / 2.0), t, color);
+    let count = if hidden { format!("hidden · {count}") } else { count.to_string() };
+    ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count, typography::meta(), p.faint);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

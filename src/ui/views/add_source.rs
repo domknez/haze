@@ -20,8 +20,9 @@ enum Mode {
 pub struct SourceForm {
     /// The source being edited (its id), or none for a new one.
     editing: Option<String>,
-    /// The edited source's groups put elsewhere, kept as they were.
+    /// The edited source's groups put elsewhere or hidden, kept as they were.
     shelves: std::collections::BTreeMap<String, crate::iptv::model::Shelf>,
+    hidden: std::collections::BTreeSet<String>,
     mode: Mode,
     name: String,
     url: String,
@@ -40,6 +41,7 @@ impl SourceForm {
         SourceForm {
             editing: None,
             shelves: Default::default(),
+            hidden: Default::default(),
             mode: Mode::Link,
             name: String::new(),
             url: String::new(),
@@ -62,6 +64,7 @@ impl SourceForm {
             editing: Some(source.id.clone()),
             name: source.name.clone(),
             shelves: source.shelves.clone(),
+            hidden: source.hidden.clone(),
             ..SourceForm::new()
         };
         match &source.kind {
@@ -117,7 +120,8 @@ impl SourceForm {
             "" => default_name(&kind),
             n => n.to_string(),
         };
-        let source = Source { id: self.editing.clone().unwrap_or_else(library::new_id), name, kind, shelves: self.shelves.clone() };
+        let id = self.editing.clone().unwrap_or_else(library::new_id);
+        let source = Source { id, name, kind, shelves: self.shelves.clone(), hidden: self.hidden.clone() };
         let password = self.password.clone();
         self.check = Load::start(ctx, move || match &source.kind {
             Kind::Xtream { server, user } => {
