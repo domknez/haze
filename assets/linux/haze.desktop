@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=haze
+GenericName=IPTV Player
+Comment=Lightweight IPTV player with AirPlay output
+Exec=haze
+Icon=haze
+Terminal=false
+Categories=AudioVideo;Video;Player;TV;
+Keywords=iptv;m3u;xtream;tv;airplay;

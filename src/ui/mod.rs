@@ -29,7 +29,8 @@ pub fn run() -> eframe::Result {
         .with_title("haze")
         .with_inner_size(metrics::WINDOW_SIZE)
         .with_min_inner_size(metrics::MIN_WINDOW_SIZE)
-        .with_drag_and_drop(true);
+        .with_drag_and_drop(true)
+        .with_icon(std::sync::Arc::new(crate::icon::window_icon()));
     // The picture under a transparent title bar, traffic lights floating over it.
     #[cfg(target_os = "macos")]
     let viewport = viewport.with_fullsize_content_view(true).with_title_shown(false).with_titlebar_shown(false);

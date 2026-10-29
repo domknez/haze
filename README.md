@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/haze-icon-pack/png/haze-128.png" width="128" alt="haze icon"></p>
+
 # haze
 
 **A free and open source, ultra-lightweight desktop IPTV player written in Rust — M3U

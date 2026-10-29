@@ -8,6 +8,7 @@ mod log;
 mod awake;
 mod cli;
 mod credentials;
+mod icon;
 mod iptv;
 mod library;
 mod media;
