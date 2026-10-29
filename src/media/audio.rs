@@ -4,10 +4,10 @@
 use super::demux::Packet;
 use super::{AudioCmd, Shared, Status};
 use crate::output::{self, Output, RATE, Sink};
-use ffmpeg_next as ffmpeg;
 use ffmpeg::ChannelLayout;
 use ffmpeg::format::Sample;
 use ffmpeg::format::sample::Type as SampleType;
+use ffmpeg_next as ffmpeg;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -37,7 +37,13 @@ struct Feeder {
     _awake: crate::awake::Awake,
 }
 
-pub fn run(shared: Arc<Shared>, decoder: ffmpeg::decoder::Audio, time_base: ffmpeg::Rational, packets: Receiver<Packet>, settings: Settings) {
+pub fn run(
+    shared: Arc<Shared>,
+    decoder: ffmpeg::decoder::Audio,
+    time_base: ffmpeg::Rational,
+    packets: Receiver<Packet>,
+    settings: Settings,
+) {
     crate::awake::high_priority_thread();
     let (sink, output) = open_sink(&shared, &settings.output, settings.volume);
     let mut feeder = Feeder {
@@ -148,6 +154,12 @@ impl Feeder {
             if paused {
                 self.sink.pause();
             } else {
+                if self.sink.drops_buffer_on_pause()
+                    && let Some(t) = self.shared.clock.now()
+                {
+                    // What the speaker held is gone: play it again from the pause.
+                    *self.shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(t);
+                }
                 self.sink.resume();
             }
         }

@@ -78,7 +78,8 @@ impl Login {
         }
         // The server's clock as text and as a timestamp tell its time zone.
         let server = &v["server_info"];
-        let server_offset = match (string(&server["time_now"]).and_then(|t| super::time::parse_plain(&t)), number(&server["timestamp_now"])) {
+        let server_offset = match (string(&server["time_now"]).and_then(|t| super::time::parse_plain(&t)), number(&server["timestamp_now"]))
+        {
             // Rounded to quarter hours: the two are read a moment apart.
             (Some(wall), Some(utc)) => ((wall - utc as i64) as f64 / 900.0).round() as i64 * 900,
             _ => 0,
@@ -96,7 +97,8 @@ impl Login {
     pub fn catalog(&self) -> Result<Catalog, Error> {
         let account = self.account()?;
         let live_groups = categories(&http::json(&self.api(Some("get_live_categories")))?);
-        let channels: Vec<Channel> = list(&http::json(&self.api(Some("get_live_streams")))?).filter_map(|v| self.channel(v, &live_groups)).collect();
+        let channels: Vec<Channel> =
+            list(&http::json(&self.api(Some("get_live_streams")))?).filter_map(|v| self.channel(v, &live_groups)).collect();
         // The video library is a bonus: a provider without one (or failing to list it)
         // still gives a working catalog.
         let movies = match (http::json(&self.api(Some("get_vod_categories"))), http::json(&self.api(Some("get_vod_streams")))) {
@@ -145,7 +147,10 @@ impl Login {
             poster: string(&v["stream_icon"]).filter(|s| s.starts_with("http")),
             group: group_name(&v["category_id"], groups),
             url: self.movie_url(id, &ext),
-            rating: string(&v["rating"]).and_then(|r| r.parse::<f32>().ok()).or_else(|| v["rating"].as_f64().map(|f| f as f32)).filter(|r| *r > 0.0),
+            rating: string(&v["rating"])
+                .and_then(|r| r.parse::<f32>().ok())
+                .or_else(|| v["rating"].as_f64().map(|f| f as f32))
+                .filter(|r| *r > 0.0),
         })
     }
 }
@@ -218,11 +223,17 @@ mod tests {
     #[test]
     fn builds_urls() {
         let l = login();
-        assert_eq!(l.api(Some("get_live_streams")), "http://line.example.tv:8080/player_api.php?username=me&password=p%40ss%20word&action=get_live_streams");
+        assert_eq!(
+            l.api(Some("get_live_streams")),
+            "http://line.example.tv:8080/player_api.php?username=me&password=p%40ss%20word&action=get_live_streams"
+        );
         assert_eq!(l.live_url(42), "http://line.example.tv:8080/live/me/p%40ss%20word/42.ts");
         assert_eq!(l.movie_url(7, "mkv"), "http://line.example.tv:8080/movie/me/p%40ss%20word/7.mkv");
         // 2026-10-29 20:00 UTC
-        assert_eq!(l.timeshift_url(42, 1_793_304_000, 120, 0), "http://line.example.tv:8080/timeshift/me/p%40ss%20word/120/2026-10-29:20-00/42.ts");
+        assert_eq!(
+            l.timeshift_url(42, 1_793_304_000, 120, 0),
+            "http://line.example.tv:8080/timeshift/me/p%40ss%20word/120/2026-10-29:20-00/42.ts"
+        );
         assert!(l.timeshift_url(42, 1_793_304_000, 60, 3600).contains("/2026-10-29:21-00/"), "on the server's clock");
     }
 
@@ -239,7 +250,8 @@ mod tests {
             .unwrap();
         assert_eq!((c.key.as_str(), c.number, c.group.as_str()), ("42", Some(101), "Sports"));
         assert_eq!(c.catchup, Some(Catchup { days: 7, kind: CatchupKind::Xtream { stream_id: 42 } }));
-        let c = l.channel(&json!({"name": "CNN", "stream_id": "9", "stream_icon": "", "category_id": 6, "tv_archive": 0}), &groups).unwrap();
+        let c =
+            l.channel(&json!({"name": "CNN", "stream_id": "9", "stream_icon": "", "category_id": 6, "tv_archive": 0}), &groups).unwrap();
         assert_eq!((c.group.as_str(), c.logo.clone(), c.catchup.clone()), ("News", None, None));
         assert!(l.channel(&json!({"name": "no id"}), &groups).is_none());
     }

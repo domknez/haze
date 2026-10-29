@@ -1,8 +1,8 @@
 //! Opening a stream and handing its packets to the audio and video threads.
 
 use super::{AudioCmd, DemuxCmd, Shared, Status, StreamInfo, Track, audio, codec_label, video};
-use ffmpeg_next as ffmpeg;
 use ffmpeg::media::Type;
+use ffmpeg_next as ffmpeg;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::sync::{Arc, Once};
@@ -38,10 +38,10 @@ fn init() {
 
 pub fn run(shared: Arc<Shared>, request: super::Request, audio: audio::Settings, commands: Receiver<DemuxCmd>) {
     init();
-    if let Err(e) = play(&shared, &request, audio, &commands) {
-        if !shared.stopped() {
-            shared.set_status(Status::Failed(e));
-        }
+    if let Err(e) = play(&shared, &request, audio, &commands)
+        && !shared.stopped()
+    {
+        shared.set_status(Status::Failed(e));
     }
 }
 
@@ -67,12 +67,22 @@ fn options(request: &super::Request) -> ffmpeg::Dictionary<'static> {
 
 fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
     let stop = shared.clone();
-    let mut input = ffmpeg::format::input_with_interrupt_and_dictionary(&request.url, move || stop.stopped(), options(request))
-        .map_err(|e| describe(&e))?;
-    let video_index = input.streams().best(Type::Video).map(|s| s.index());
-    let mut audio_index = input.streams().best(Type::Audio).map(|s| s.index());
+    let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
+    let url = super::hls::pick_variant(&request.url, user_agent, request.referrer.as_deref()).unwrap_or_else(|| request.url.clone());
+    if shared.stopped() {
+        return Ok(());
+    }
+    let mut input =
+        ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request)).map_err(|e| describe(&e))?;
+    let video_index = best_video(&input);
+    let mut audio_index = best_audio(&mut input, video_index);
     if video_index.is_none() && audio_index.is_none() {
-        return Err("the stream has neither picture nor sound".into());
+        return Err("the channel isn't sending anything right now".into());
+    }
+    // Leave out every other stream: an HLS playlist offers each quality as streams of
+    // its own, and the ones left in are all downloaded.
+    for i in 0..input.nb_streams() as usize {
+        set_discard(&mut input, i, Some(i) != video_index && Some(i) != audio_index);
     }
 
     let mut info = StreamInfo {
@@ -135,7 +145,13 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
         if let Some(rx) = &pending_audio_cmds {
             while let Ok(AudioCmd::Volume(_) | AudioCmd::Output(_)) = rx.try_recv() {}
         }
-        match commands.try_recv() {
+        // A speaker that threw its buffer away on pause: carry on from where it paused.
+        let resume = shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let command = match resume {
+            Some(t) if !request.live => Ok(DemuxCmd::Seek(t)),
+            _ => commands.try_recv(),
+        };
+        match command {
             Ok(DemuxCmd::Seek(t)) => {
                 let ts = (t * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
                 if let Err(e) = input.seek(ts, ..ts) {
@@ -156,6 +172,10 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
                     match audio_decoder(&stream) {
                         Ok(d) => {
                             let _ = tx.send(Packet::Decoder(d, stream.time_base()));
+                            if let Some(old) = audio_index {
+                                set_discard(&mut input, old, true);
+                            }
+                            set_discard(&mut input, i, false);
                             audio_index = Some(i);
                             let mut info = shared.info.lock().unwrap_or_else(|e| e.into_inner());
                             info.audio_track = info.audio_tracks.iter().position(|t| t.stream == i);
@@ -211,10 +231,52 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
     }
 }
 
+/// The picture to show: of an HLS playlist's qualities, the best one.
+fn best_video(input: &ffmpeg::format::context::Input) -> Option<usize> {
+    let bitrate = |s: &ffmpeg::Stream| s.metadata().get("variant_bitrate").and_then(|b| b.parse::<u64>().ok()).unwrap_or(0);
+    input
+        .streams()
+        .filter(|s| s.parameters().medium() == Type::Video && !s.disposition().contains(ffmpeg::format::stream::Disposition::ATTACHED_PIC))
+        .max_by_key(|s| {
+            // SAFETY: the parameters belong to a stream of this open input.
+            let (w, h) = unsafe { ((*s.parameters().as_ptr()).width, (*s.parameters().as_ptr()).height) };
+            (bitrate(s), i64::from(w) * i64::from(h))
+        })
+        .map(|s| s.index())
+}
+
+/// The sound that goes with `video` (in the same program), as ffmpeg judges it.
+fn best_audio(input: &mut ffmpeg::format::context::Input, video: Option<usize>) -> Option<usize> {
+    let related = video.map_or(-1, |v| v as i32);
+    // SAFETY: plain query on the open input.
+    let i = unsafe {
+        ffmpeg::ffi::av_find_best_stream(
+            input.as_mut_ptr(),
+            ffmpeg::ffi::AVMediaType::AVMEDIA_TYPE_AUDIO,
+            -1,
+            related,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (i >= 0).then_some(i as usize)
+}
+
+fn set_discard(input: &mut ffmpeg::format::context::Input, index: usize, discard: bool) {
+    // SAFETY: index is below nb_streams; only the discard field is written.
+    unsafe {
+        let ctx = input.as_mut_ptr();
+        if index < (*ctx).nb_streams as usize {
+            let stream = *(*ctx).streams.add(index);
+            (*stream).discard = if discard { ffmpeg::ffi::AVDiscard::AVDISCARD_ALL } else { ffmpeg::ffi::AVDiscard::AVDISCARD_DEFAULT };
+        }
+    }
+}
+
 fn video_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Video, String> {
     let mut ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| e.to_string())?;
     // Frame threads: 1080p50 H.264 on one core is too much for older machines.
-    ctx.set_threading(ffmpeg::codec::threading::Config { kind: ffmpeg::codec::threading::Type::Frame, count: 0, ..Default::default() });
+    ctx.set_threading(ffmpeg::codec::threading::Config { kind: ffmpeg::codec::threading::Type::Frame, count: 0 });
     ctx.decoder().video().map_err(|e| format!("can't decode the picture: {e}"))
 }
 
@@ -238,7 +300,9 @@ fn track_label(stream: &ffmpeg::Stream, n: usize) -> String {
 /// ffmpeg's errors in words for the screen.
 fn describe(e: &ffmpeg::Error) -> String {
     match e {
-        ffmpeg::Error::HttpUnauthorized | ffmpeg::Error::HttpForbidden => "the provider refused the stream (login or connection limit)".into(),
+        ffmpeg::Error::HttpUnauthorized | ffmpeg::Error::HttpForbidden => {
+            "the provider refused the stream (login or connection limit)".into()
+        }
         ffmpeg::Error::HttpNotFound => "the stream was not found".into(),
         ffmpeg::Error::HttpServerError => "the provider's server failed".into(),
         ffmpeg::Error::Exit => "stopped".into(),

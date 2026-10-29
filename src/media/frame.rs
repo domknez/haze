@@ -2,9 +2,9 @@
 //! interleaved UV), converted to colour on the GPU. That's 1.5 bytes a pixel to copy
 //! and upload instead of 4, and no colour conversion on the CPU.
 
-use ffmpeg_next as ffmpeg;
 use ffmpeg::format::Pixel;
 use ffmpeg::util::frame::Video;
+use ffmpeg_next as ffmpeg;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {

@@ -178,7 +178,10 @@ http://example/bare.ts
         assert_eq!(hrt.group, "Croatia");
         assert_eq!(
             hrt.catchup,
-            Some(Catchup { days: 7, kind: CatchupKind::Template { source: "http://cdn/hrt1?start={utc}&dur={duration}".into(), append: false } })
+            Some(Catchup {
+                days: 7,
+                kind: CatchupKind::Template { source: "http://cdn/hrt1?start={utc}&dur={duration}".into(), append: false }
+            })
         );
 
         let arena = &c.channels[1];

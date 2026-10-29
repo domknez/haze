@@ -7,6 +7,7 @@ mod audio;
 mod clock;
 mod demux;
 pub mod frame;
+mod hls;
 mod video;
 
 use crate::output::Output;
@@ -75,6 +76,8 @@ pub struct Shared {
     /// Threads still playing out the end of the stream; the last one to finish
     /// marks it ended.
     finishing: AtomicU8,
+    /// Where to carry on after a pause the output didn't keep its audio through.
+    resume_at: Mutex<Option<f64>>,
     /// A problem worth telling about that didn't stop playback (e.g. the speaker
     /// couldn't be reached, so sound plays here).
     notice: Mutex<Option<String>>,
@@ -148,6 +151,7 @@ impl Player {
             paused: AtomicBool::new(false),
             epoch: AtomicU64::new(0),
             finishing: AtomicU8::new(0),
+            resume_at: Mutex::new(None),
             notice: Mutex::new(None),
             repaint: Box::new(repaint),
         });
@@ -155,10 +159,7 @@ impl Player {
         let (demux_tx, demux_rx) = channel();
         let settings = audio::Settings { output, volume, commands: audio_rx };
         let (s, r) = (shared.clone(), request.clone());
-        std::thread::Builder::new()
-            .name("demux".into())
-            .spawn(move || demux::run(s, r, settings, demux_rx))
-            .expect("spawn demux thread");
+        std::thread::Builder::new().name("demux".into()).spawn(move || demux::run(s, r, settings, demux_rx)).expect("spawn demux thread");
         Player { shared, audio: audio_tx, demux: demux_tx, request }
     }
 

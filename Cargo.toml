@@ -29,6 +29,7 @@ num-bigint = "0.5"
 getrandom = "0.4"
 zune-jpeg = "0.5"
 png = "0.18"
+image-webp = "0.2"
 thiserror = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -37,6 +38,9 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 # system can't tell), and real-time priority for the audio threads.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+
+[target.'cfg(unix)'.dependencies]
+# Thread priority on macOS; the local time zone for guide times everywhere.
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]

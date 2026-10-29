@@ -2,8 +2,8 @@
 
 use super::demux::Packet;
 use super::{Shared, Status, VideoFrame};
-use ffmpeg_next as ffmpeg;
 use ffmpeg::format::Pixel;
+use ffmpeg_next as ffmpeg;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -19,7 +19,13 @@ const SHOW_EVERY: u32 = 8;
 /// How long to wait for the sound to start before the picture runs on its own.
 const NO_CLOCK: Duration = Duration::from_secs(3);
 
-pub fn run(shared: Arc<Shared>, mut decoder: ffmpeg::decoder::Video, time_base: ffmpeg::Rational, packets: Receiver<Packet>, has_audio: bool) {
+pub fn run(
+    shared: Arc<Shared>,
+    mut decoder: ffmpeg::decoder::Video,
+    time_base: ffmpeg::Rational,
+    packets: Receiver<Packet>,
+    has_audio: bool,
+) {
     let mut frame = ffmpeg::frame::Video::empty();
     let mut converted = ffmpeg::frame::Video::empty();
     let mut scaler: Option<(ffmpeg::software::scaling::Context, (Pixel, u32, u32))> = None;

@@ -7,13 +7,21 @@
 mod log;
 mod awake;
 mod cli;
+mod credentials;
 mod iptv;
+mod library;
 mod media;
 mod output;
+mod settings;
+mod ui;
 
-fn main() {
+fn main() -> eframe::Result {
     log::install_panic_hook();
-    if let Some(command) = cli::Command::parse(std::env::args().skip(1)) {
-        command.run();
+    match cli::Command::parse(std::env::args().skip(1)) {
+        Some(command) => {
+            command.run();
+            Ok(())
+        }
+        None => ui::run(),
     }
 }

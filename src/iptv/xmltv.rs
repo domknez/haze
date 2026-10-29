@@ -37,7 +37,9 @@ pub fn parse(input: impl BufRead, channels: Option<&HashSet<String>>, now: i64) 
     loop {
         match reader.read_event_into(&mut buf)? {
             Event::Start(e) => match e.name().as_ref() {
-                "programme" => current = programme(&e).filter(|(ch, p)| p.stop > from && p.start < until && channels.is_none_or(|c| c.contains(ch))),
+                "programme" => {
+                    current = programme(&e).filter(|(ch, p)| p.stop > from && p.start < until && channels.is_none_or(|c| c.contains(ch)))
+                }
                 "title" if current.as_ref().is_some_and(|(_, p)| p.title.is_empty()) => field = Field::Title,
                 "desc" if current.as_ref().is_some_and(|(_, p)| p.desc.is_empty()) => field = Field::Desc,
                 _ => field = Field::None,

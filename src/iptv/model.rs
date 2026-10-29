@@ -127,10 +127,6 @@ impl Guide {
         let i = list.partition_point(|p| p.stop <= now);
         list.get(i).filter(|p| p.is_on(now)).map(|p| (i, p))
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.programmes.is_empty()
-    }
 }
 
 #[cfg(test)]

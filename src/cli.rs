@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 pub enum Command {
     /// Play a stream for a few seconds and report what it is.
-    Probe { url: String, seconds: u64 },
+    Probe {
+        url: String,
+        seconds: u64,
+    },
     Help,
 }
 
