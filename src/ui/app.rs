@@ -143,6 +143,7 @@ pub struct App {
     applied_dark: Option<bool>,
     /// Presses on the AirPlay speaker's buttons.
     remote: Option<(crate::output::airplay::dacp::Server, std::sync::mpsc::Receiver<crate::output::airplay::dacp::Remote>)>,
+    now_playing: Option<super::now_playing::NowPlaying>,
 }
 
 impl App {
@@ -202,6 +203,7 @@ impl App {
             anchors: Default::default(),
             applied_dark: None,
             remote,
+            now_playing: super::now_playing::NowPlaying::start(cc),
         };
         if let Some(i) = active {
             app.switch_source(ctx, i, None);
@@ -436,6 +438,24 @@ impl App {
             };
             self.apply(ctx, act);
         }
+        // Media keys and the system's Now Playing controls.
+        let keys = self.now_playing.as_ref().map(|n| n.presses()).unwrap_or_default();
+        for key in keys {
+            use super::now_playing::Press;
+            let paused = self.player.as_ref().is_some_and(Player::paused);
+            let act = match key {
+                Press::Toggle => Act::TogglePause,
+                Press::Play if paused => Act::TogglePause,
+                Press::Pause if !paused => Act::TogglePause,
+                Press::Play | Press::Pause => continue,
+                Press::Next => Act::Step(1),
+                Press::Prev => Act::Step(-1),
+                Press::Seek(d) => Act::Seek(d),
+                Press::Volume(v) => Act::Volume(v),
+            };
+            self.apply(ctx, act);
+        }
+        self.announce();
         // Speakers come and go; the one picked last time is used once it shows up.
         if let (Some(name), Output::Local, Some(d)) = (&self.prefs.output, &self.output, &self.discovery)
             && let Some(device) = d.devices().into_iter().find(|d| &d.name == name)
@@ -469,6 +489,26 @@ impl App {
             Status::Ended if live => self.apply(ctx, Act::Retry),
             Status::Playing => self.retries = 0,
             _ => {}
+        }
+    }
+
+    /// Tell the OS what's on.
+    fn announce(&mut self) {
+        if self.now_playing.is_none() {
+            return;
+        }
+        let name = self.playing_name();
+        let channel = self.playing_channel().cloned();
+        let title = match &self.playing {
+            Some(Playing::Catchup { programme, .. }) => programme.title.clone(),
+            Some(Playing::Live { .. }) => channel.as_ref().and_then(|c| self.now_on(c)).map_or_else(|| name.clone(), |p| p.title.clone()),
+            _ => name.clone(),
+        };
+        let subtitle = if title == name { self.source().map(|s| s.name.clone()).unwrap_or_default() } else { name };
+        let logo = channel.and_then(|c| c.logo);
+        let playing = self.player.as_ref().is_some_and(|p| !p.paused());
+        if let Some(n) = &mut self.now_playing {
+            n.update(if self.playing.is_some() { &title } else { "" }, &subtitle, logo.as_deref(), playing);
         }
     }
 

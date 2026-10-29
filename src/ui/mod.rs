@@ -6,11 +6,13 @@
 //! - [`video`]: the picture, drawn on the GPU from the decoder's YUV planes
 //! - [`style`], [`icons`], [`widgets`]: the look
 //! - [`logos`]: channel logos and posters; [`load`]: background loads
+//! - [`now_playing`]: media keys and the OS "Now Playing" widget
 
 mod app;
 mod icons;
 mod load;
 mod logos;
+mod now_playing;
 mod style;
 mod video;
 mod views;

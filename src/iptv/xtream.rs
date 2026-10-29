@@ -264,6 +264,66 @@ mod tests {
         assert_eq!((m.year, m.rating, m.group.as_str()), (Some(2021), Some(7.9), super::super::m3u::NO_GROUP));
     }
 
+    /// A provider on localhost answering the API like an Xtream Codes panel.
+    fn fake_provider(auth: u8) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut line = String::new();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                reader.read_line(&mut line).unwrap();
+                let mut header = String::new();
+                while reader.read_line(&mut header).unwrap_or(0) > 2 {
+                    header.clear();
+                }
+                let path = line.split_whitespace().nth(1).unwrap_or("");
+                let action = path.split("action=").nth(1).unwrap_or("");
+                let body = match action {
+                    "" => json!({"user_info": {"auth": auth, "status": "Active", "exp_date": "1800000000", "max_connections": "2", "active_cons": "0"},
+                                 "server_info": {"timestamp_now": 1_793_304_000, "time_now": "2026-10-29 21:00:00"}}),
+                    "get_live_categories" => json!([{"category_id": "1", "category_name": "Sports"}, {"category_id": "2", "category_name": "News"}]),
+                    "get_live_streams" => json!([
+                        {"num": 1, "name": "CNN", "stream_id": 9, "category_id": "2", "epg_channel_id": "cnn.us", "tv_archive": 0},
+                        {"num": 2, "name": "Arena Sport 1", "stream_id": "42", "category_id": "1", "tv_archive": 1, "tv_archive_duration": "7"}
+                    ]),
+                    "get_vod_categories" => json!([{"category_id": "7", "category_name": "Films"}]),
+                    "get_vod_streams" => json!([{"name": "Dune (2021)", "stream_id": 5, "category_id": "7", "container_extension": "mkv"}]),
+                    _ => json!([]),
+                }
+                .to_string();
+                let mut out = stream;
+                let _ = write!(
+                    out,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        format!("{addr}")
+    }
+
+    #[test]
+    fn loads_a_whole_catalog() {
+        let login = Login::new(&fake_provider(1), "me", "pw");
+        let c = login.catalog().unwrap();
+        assert_eq!(c.groups, ["Sports", "News"], "the provider's order");
+        assert_eq!(c.channels.len(), 2);
+        assert_eq!(c.channels[1].url, format!("{}/live/me/pw/42.ts", login.server));
+        assert_eq!(c.movies.len(), 1);
+        assert_eq!(c.movies[0].url, format!("{}/movie/me/pw/5.mkv", login.server));
+        let account = c.account.unwrap();
+        assert_eq!((account.expires, account.max_connections, account.server_offset), (Some(1_800_000_000), Some(2), 3600));
+        assert_eq!(c.epg_url, Some(login.guide_url()));
+    }
+
+    #[test]
+    fn says_when_the_login_is_wrong() {
+        let err = Login::new(&fake_provider(0), "me", "bad").catalog().unwrap_err().to_string();
+        assert!(err.contains("did not accept"), "{err}");
+    }
+
     #[test]
     fn keeps_category_order() {
         let ch = |g: &str| Channel {
