@@ -32,6 +32,10 @@ impl App {
                     if list.clicked() {
                         acts.push(Act::ToggleRail);
                     }
+                    let guide = widgets::icon_button(ui, Icon::Guide, 32.0, if self.guide_open { p.text } else { p.dim }, "Guide (G)");
+                    if guide.clicked() {
+                        acts.push(Act::ToggleGuide);
+                    }
                     ui.add_space(4.0);
                     for tab in Tab::ALL {
                         if self.tab_button(ui, tab).clicked() {

@@ -54,7 +54,9 @@ Secret Service), never in the settings files.
   search, **favourites** (right-click a channel, or the star) and **recently watched**;
   hide the groups you never watch (right-click one), out of lists, search and zapping
 - **Guide:** XMLTV (gzipped or not, read as a stream so huge provider guides stay
-  light), the programme on now with its progress and a strip of what's next
+  light), the programme on now with its progress and a strip of what's next, and the
+  **full guide** (G): the group's channels against the time, half a day back and a
+  day ahead, to play a channel or a programme from the archive
 - **Catch-up:** watch a programme that already aired from the strip, or the one on now
   *from the start* — Xtream archives, and M3U `catchup` (`default`, `append`, `shift`,
   `flussonic`, with `catchup-source` templates)
@@ -69,6 +71,7 @@ Secret Service), never in the settings files.
   subtitles from the stream (SubRip, ASS, WebVTT, MP4 text), or drop an `.srt` on the
   window (UTF-8 or Windows-1250)
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
+  G for the guide,
   ⌘F to search, ⌘1–5 for the tabs
 
 **Listening anywhere**

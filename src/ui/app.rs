@@ -65,6 +65,8 @@ pub enum Act {
     ToggleMute,
     ToggleFullscreen,
     ToggleRail,
+    /// Open or close the guide.
+    ToggleGuide,
     /// Show or hide the column of groups.
     ToggleGroups,
     Theme(Appearance),
@@ -97,6 +99,10 @@ pub struct App {
     pub output: Output,
     pub browse: Browse,
     pub rail_open: bool,
+    /// The guide covers the picture.
+    pub guide_open: bool,
+    /// The guide should scroll to now and the channel playing.
+    pub guide_jump: bool,
     /// The column of groups beside the channels.
     pub groups_open: bool,
     pub popup: Option<Popup>,
@@ -163,6 +169,8 @@ impl App {
             discovery,
             output: Output::Local,
             rail_open: true,
+            guide_open: false,
+            guide_jump: false,
             groups_open: true,
             popup: None,
             form: None,
@@ -570,6 +578,8 @@ impl App {
                 if self.popup.is_some() || self.form.is_some() {
                     acts.push(Act::Popup(None));
                     self.form = None;
+                } else if self.guide_open {
+                    acts.push(Act::ToggleGuide);
                 } else if i.viewport().fullscreen == Some(true) {
                     acts.push(Act::ToggleFullscreen);
                 }
@@ -606,6 +616,9 @@ impl App {
             }
             if i.consume_key(Modifiers::NONE, Key::L) {
                 acts.push(Act::ToggleRail);
+            }
+            if i.consume_key(Modifiers::NONE, Key::G) {
+                acts.push(Act::ToggleGuide);
             }
             if i.consume_key(Modifiers::NONE, Key::CloseBracket) {
                 acts.push(Act::PictureDelay(Some(50)));
@@ -745,6 +758,11 @@ impl App {
                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!full));
             }
             Act::ToggleRail => self.rail_open = !self.rail_open,
+            Act::ToggleGuide => {
+                self.guide_open = !self.guide_open;
+                self.guide_jump = self.guide_open;
+                self.popup = None;
+            }
             Act::Theme(t) => self.prefs.update(|p| p.theme = t),
             Act::AddSource => {
                 self.popup = None;
@@ -931,10 +949,14 @@ impl eframe::App for App {
         } else if self.controls_visible(&ctx) {
             self.controls_shown = true;
             self.top_bar(&ctx, screen, &mut acts);
-            if self.rail_open {
-                self.rail(&ctx, screen, &mut acts);
+            if self.guide_open {
+                self.guide_view(&ctx, screen, &mut acts);
+            } else {
+                if self.rail_open {
+                    self.rail(&ctx, screen, &mut acts);
+                }
+                self.bottom(&ctx, screen, &mut acts);
             }
-            self.bottom(&ctx, screen, &mut acts);
             self.popups(&ctx, screen, &mut acts);
         } else {
             self.controls_shown = false;

@@ -37,6 +37,8 @@ pub enum Icon {
     FromStart,
     /// Lines with a dot: the channel list.
     List,
+    /// Rows of bars of different lengths: the guide.
+    Guide,
     /// A bin: remove.
     Trash,
     /// A pencil: edit.
@@ -229,6 +231,12 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
             for y in [0.26, 0.5, 0.74] {
                 painter.circle_filled(p(r, 0.16, y), w * 0.06, color);
                 line(p(r, 0.32, y), p(r, 0.88, y));
+            }
+        }
+        Icon::Guide => {
+            for (y, cuts) in [(0.26, [0.12, 0.42, 0.88]), (0.5, [0.12, 0.62, 0.88]), (0.74, [0.12, 0.34, 0.88])] {
+                line(p(r, cuts[0], y), p(r, cuts[1] - 0.07, y));
+                line(p(r, cuts[1] + 0.07, y), p(r, cuts[2], y));
             }
         }
         Icon::Trash => {

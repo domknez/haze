@@ -226,6 +226,7 @@ impl App {
             ("F", "full screen"),
             ("M", "mute"),
             ("L", "channel list"),
+            ("G", "guide"),
             ("[ ]", "picture earlier / later"),
             ("⌘F", "search"),
             ("⌘1–5", "tabs"),

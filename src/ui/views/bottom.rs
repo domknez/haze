@@ -311,7 +311,7 @@ pub fn duration_text(secs: f64) -> String {
 }
 
 /// The computer's time zone at `t`, seconds east of UTC (for showing guide times).
-fn local_offset(t: i64) -> i64 {
+pub(super) fn local_offset(t: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: localtime_r only writes into the tm we pass.

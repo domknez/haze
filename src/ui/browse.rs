@@ -163,6 +163,12 @@ impl Browse {
         groups.picked = group;
     }
 
+    /// The channels of the group picked among them (all shown, when none), as the
+    /// guide lists them.
+    pub fn channels_in_group(&self, catalog: &Catalog) -> Vec<usize> {
+        indices(&catalog.channels, |c| self.channels.picked.as_ref().map_or_else(|| self.shows(&c.group), |g| &c.group == g))
+    }
+
     /// Back from the episodes to the series.
     pub fn close_series(&mut self) {
         self.open_series = None;
