@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 (2026-10-30)
+
 The first version of haze:
 
 - Sources: M3U links and files (or a file dropped on the window) and Xtream Codes
@@ -32,3 +34,4 @@ The first version of haze:
 - Updates itself: new versions download and verify in the background, then
   *Restart to update* shows in the top bar (Settings › Updates; `haze check-update`
   and `haze self-update` from the command line)
+
