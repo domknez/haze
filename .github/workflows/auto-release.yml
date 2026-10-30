@@ -1,0 +1,61 @@
+name: Auto release
+
+# Every pull request merged into main becomes a release: bump the version, move the
+# changelog's Unreleased notes under it (or use the PR title), commit, tag. The tag
+# starts the Release workflow, which builds and publishes.
+#
+# Labels on the PR: release:patch (0.3.0 -> 0.3.1), release:major (-> 1.0.0),
+# no-release (merge without releasing). Default: minor (-> 0.4.0).
+#
+# Pushes go through the RELEASE_DEPLOY_KEY secret: a deploy key with write access
+# that may bypass the main branch rules. Tags pushed with the workflow's own token
+# would not start the Release workflow.
+#
+# pull_request_target runs this file from main with access to secrets; it never
+# checks out or runs code from the pull request itself.
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.event.pull_request.merged && !contains(github.event.pull_request.labels.*.name, 'no-release')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - name: Bump version and changelog
+        id: bump
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          TITLE: ${{ github.event.pull_request.title }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          case ",$LABELS," in
+            *,release:major,*) part="major" ;;
+            *,release:patch,*) part="patch" ;;
+            *) part="minor" ;;
+          esac
+          version=$(python3 scripts/bump-version.py "$part" "$TITLE (#$NUMBER)")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $VERSION" -m "Pull request #$NUMBER"
+          git tag -a "v$VERSION" -m "haze $VERSION"
+          git push origin HEAD:main "v$VERSION"

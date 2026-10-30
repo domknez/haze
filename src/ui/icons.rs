@@ -35,6 +35,8 @@ pub enum Icon {
     Windowed,
     /// An arrow curling back to a bar: watch from the start.
     FromStart,
+    /// An arrow down into a tray: an update to install.
+    Update,
     /// Lines with a dot: the channel list.
     List,
     /// Rows of bars of different lengths: the guide.
@@ -226,6 +228,11 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
             poly(vec![tip + vec2(-w * 0.13, -w * 0.02), tip + vec2(w * 0.11, -w * 0.02), tip + vec2(-w * 0.01, -w * 0.18)]);
             line(p(r, 0.54, 0.4), p(r, 0.54, 0.56));
             line(p(r, 0.54, 0.56), p(r, 0.66, 0.62));
+        }
+        Icon::Update => {
+            line(p(r, 0.5, 0.12), p(r, 0.5, 0.62));
+            poly(vec![p(r, 0.3, 0.46), p(r, 0.7, 0.46), p(r, 0.5, 0.68)]);
+            painter.add(Shape::line(vec![p(r, 0.14, 0.62), p(r, 0.14, 0.86), p(r, 0.86, 0.86), p(r, 0.86, 0.62)], stroke));
         }
         Icon::List => {
             for y in [0.26, 0.5, 0.74] {

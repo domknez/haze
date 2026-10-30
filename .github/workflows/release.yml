@@ -113,10 +113,14 @@ jobs:
           cp target/release/haze README.md LICENSE assets/linux/haze.desktop "stage/$name/"
           cp assets/haze-icon-pack/png/haze-256.png "stage/$name/haze.png"
           tar -C stage -czf "dist/$name.tar.gz" "$name"
+          # Bare binary for in-app updates.
+          cp target/release/haze "dist/$name"
       - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/haze-*-linux-${{ matrix.arch }}
 
   windows:
     name: Windows (x64)
@@ -141,6 +145,7 @@ jobs:
           # ffmpeg's libraries go beside haze.exe (LGPL builds, see BtbN/FFmpeg-Builds).
           cp "$FFMPEG_BIN"/*.dll "dist/$name/"
           "dist/$name/haze.exe" help
+          # In-app updates install from this zip too: ffmpeg's DLLs change with haze.
           cd dist && 7z a "$name.zip" "$name" >/dev/null
       - uses: actions/upload-artifact@v7
         with:

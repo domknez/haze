@@ -10,6 +10,10 @@ pub enum Command {
         url: String,
         seconds: u64,
     },
+    /// Is a newer release out, and can this copy install it.
+    CheckUpdate,
+    /// Install the latest release in place (no relaunch).
+    SelfUpdate,
     Help,
 }
 
@@ -21,6 +25,8 @@ impl Command {
                 Some(url) => Command::Probe { url, seconds: args.next().and_then(|s| s.parse().ok()).unwrap_or(8) },
                 None => Command::Help,
             },
+            "check-update" => Command::CheckUpdate,
+            "self-update" => Command::SelfUpdate,
             _ => Command::Help,
         })
     }
@@ -28,8 +34,34 @@ impl Command {
     pub fn run(self) {
         match self {
             Command::Probe { url, seconds } => probe(&url, seconds),
-            Command::Help => println!("usage: haze [probe <url> [seconds]]"),
+            Command::CheckUpdate => check_update(),
+            Command::SelfUpdate => self_update(),
+            Command::Help => println!("usage: haze [probe <url> [seconds] | check-update | self-update]"),
         }
+    }
+}
+
+fn check_update() {
+    match crate::update::check() {
+        Ok(Some(release)) => {
+            println!("haze {} is available (you have {})", release.version, crate::update::CURRENT);
+            println!("installs in place: {}", crate::update::can_install(&release));
+        }
+        Ok(None) => println!("haze {} is the latest version", crate::update::CURRENT),
+        Err(e) => println!("couldn't check for updates: {e}"),
+    }
+}
+
+fn self_update() {
+    let release = match crate::update::check() {
+        Ok(Some(release)) => release,
+        Ok(None) => return println!("haze {} is the latest version", crate::update::CURRENT),
+        Err(e) => return println!("couldn't check for updates: {e}"),
+    };
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    match crate::update::install(&release, &progress) {
+        Ok(_) => println!("installed haze {}", release.version),
+        Err(e) => println!("update failed: {e}"),
     }
 }
 

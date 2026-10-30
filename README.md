@@ -78,7 +78,7 @@ Secret Service), never in the settings files.
 
 **Listening anywhere**
 
-- **AirPlay 2 and AirPlay 1** output, from dust: automatic discovery and a *Play sound
+- **AirPlay 2 and AirPlay 1** output: automatic discovery and a *Play sound
   on* picker showing each speaker's model — HomePod, Sonos, Apple TV, AirPort Express,
   shairport-sync and most AirPlay speakers
 - **Lip sync on a speaker:** an AirPlay speaker plays sound about two seconds after it
@@ -112,6 +112,12 @@ Secret Service), never in the settings files.
 Downloads for macOS (Apple Silicon and Intel, ffmpeg built in), Windows and Linux are
 on the [releases page](https://github.com/domknez/haze/releases).
 
+Later versions install themselves: haze looks for one every few hours (Settings ›
+Updates), downloads and verifies it in the background, then offers *Restart to update*
+in the top bar; an update left waiting installs when haze quits. On Windows and Linux
+that needs haze's folder to be writable by you (e.g. `~/.local/bin`); otherwise the
+button opens the download page.
+
 ### From source
 
 haze links against ffmpeg's libraries (libavcodec, libavformat, libswscale,
@@ -131,6 +137,20 @@ cargo build --release
 For a binary with ffmpeg linked in (as the macOS release is), build the small static
 ffmpeg first: `scripts/build-ffmpeg.sh target/ffmpeg`, then
 `PKG_CONFIG_PATH=target/ffmpeg/lib/pkgconfig cargo build --release --features static-ffmpeg`.
+
+### Releases
+
+- **Merging a pull request into `main` releases it.** The Auto release workflow bumps
+  the minor version, moves the CHANGELOG's *Unreleased* notes under it (or uses the PR
+  title), commits, and tags; the tag starts the Release workflow. PR labels:
+  `release:patch`, `release:major`, or `no-release` to merge without releasing.
+- **Direct pushes to `main` don't release.** To release by hand:
+  `scripts/bump-version.py minor` (or `patch`, `major`, `0.5.0`), commit, then
+  `git tag v<version> && git push origin main v<version>`.
+
+The Release workflow builds every platform and publishes the GitHub Release; run it by
+hand from the Actions tab for a dry run that publishes nothing. Adding the Apple secrets
+listed in `.github/workflows/release.yml` makes it sign with a Developer ID and notarize.
 
 ## Under the hood
 

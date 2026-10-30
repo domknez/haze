@@ -29,3 +29,6 @@ The first version of haze:
   `ᴴᴰ`) become plain capitals, accents sit on their letters, and `|` no longer looks
   like `I`
 - GPU decoding (VideoToolbox, D3D11, VA-API) and YUV drawn by a shader
+- Updates itself: new versions download and verify in the background, then
+  *Restart to update* shows in the top bar (Settings › Updates; `haze check-update`
+  and `haze self-update` from the command line)

@@ -247,7 +247,14 @@ impl App {
             });
         }
         ui.add_space(6.0);
-        ui.label(egui::RichText::new(format!("haze {}", env!("CARGO_PKG_VERSION"))).font(typography::meta()).color(colors().faint));
+        heading(ui, "Updates");
+        let status = self.updates.status();
+        if menu_row(ui, Icon::Update, "Check automatically", Some(&status), self.updates.auto).clicked() {
+            acts.push(Act::AutoUpdate(!self.updates.auto));
+        }
+        if menu_row(ui, Icon::FromStart, "Check now", None, false).clicked() {
+            acts.push(Act::CheckForUpdates);
+        }
     }
 }
 

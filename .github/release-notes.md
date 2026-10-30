@@ -6,7 +6,8 @@
 | Windows 10/11 (x64) | `haze-…-windows-x64.zip` |
 | Linux x86_64 / ARM64 | `haze-…-linux-x86_64.tar.gz` / `haze-…-linux-aarch64.tar.gz` |
 
-Bring your own playlist (M3U) or provider login (Xtream Codes). `SHA256SUMS.txt`
+Bring your own playlist (M3U) or provider login (Xtream Codes). Once installed, haze
+updates itself. `SHA256SUMS.txt`
 lists checksums of every file.
 
 **macOS:** open the DMG and drag haze to Applications. haze isn't notarized by Apple

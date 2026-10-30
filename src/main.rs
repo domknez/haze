@@ -15,6 +15,7 @@ mod media;
 mod output;
 mod settings;
 mod ui;
+mod update;
 
 fn main() -> eframe::Result {
     log::install_panic_hook();

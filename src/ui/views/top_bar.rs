@@ -52,6 +52,16 @@ impl App {
                         if airplay.clicked() {
                             acts.push(Act::Popup(Some(Popup::Outputs)));
                         }
+                        if let Some((label, installs)) = self.updates.offer() {
+                            let hint = match self.updates.failure() {
+                                Some(e) => format!("{e}\nClick to download it yourself"),
+                                None if installs => "Installs the update and opens haze again".into(),
+                                None => "Open the download page".into(),
+                            };
+                            if widgets::pill(ui, Some(Icon::Update), &label, installs).on_hover_text(hint).clicked() {
+                                acts.push(Act::InstallUpdate);
+                            }
+                        }
                         let settings = widgets::icon_button(ui, Icon::Settings, 32.0, p.dim, "Settings");
                         self.anchor(Popup::Settings, settings.rect);
                         if settings.clicked() {

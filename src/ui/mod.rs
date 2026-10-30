@@ -8,6 +8,7 @@
 //! - [`style`], [`icons`], [`widgets`]: the look
 //! - [`logos`]: channel logos and posters; [`load`]: background loads
 //! - [`now_playing`]: media keys and the OS "Now Playing" widget
+//! - [`updates`]: new releases, downloaded in the background
 
 mod app;
 mod browse;
@@ -17,6 +18,7 @@ mod logos;
 mod now_playing;
 mod session;
 mod style;
+mod updates;
 mod video;
 mod views;
 mod widgets;
@@ -28,6 +30,7 @@ use style::metrics;
 pub fn run() -> eframe::Result {
     crate::log::to_file();
     log_info!("haze {} starting ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    crate::update::clean_up();
     let viewport = egui::ViewportBuilder::default()
         .with_title("haze")
         .with_inner_size(metrics::WINDOW_SIZE)

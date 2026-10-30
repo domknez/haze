@@ -69,6 +69,8 @@ pub struct Prefs {
     pub picture_delays: BTreeMap<String, i32>,
     /// The hash of the PIN asked before hidden groups show, if one is set.
     pub pin: Option<String>,
+    /// Look for new releases and download them in the background.
+    pub auto_update: bool,
     /// The settings file changes are saved to; None keeps them in memory.
     file: Option<PathBuf>,
 }
@@ -99,6 +101,7 @@ impl Prefs {
                 .map(|o| o.into_iter().filter_map(|(k, v)| Some((k, i32::try_from(v.as_i64()?).ok()?))).collect())
                 .unwrap_or_default(),
             pin: get("pin").map(str::to_string),
+            auto_update: get("auto_update") != Some("false"),
             file: None,
         }
     }
@@ -121,7 +124,7 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 10] {
+    fn values(&self) -> [(&'static str, String); 11] {
         let delays: serde_json::Map<String, serde_json::Value> =
             self.picture_delays.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
         [
@@ -135,6 +138,7 @@ impl Prefs {
             ("volume", format!("{:.3}", self.volume)),
             ("muted", if self.muted { "true" } else { "false" }.into()),
             ("pin", self.pin.clone().unwrap_or_default()),
+            ("auto_update", if self.auto_update { "true" } else { "false" }.into()),
         ]
     }
 }
@@ -159,21 +163,21 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "channel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\npin=ab12\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str = "auto_update=false\nchannel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture_delays={\"Kitchen\":250}\npin=ab12\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {
         let p = Prefs::parse(SAVED);
         assert_eq!(p.theme, Appearance::Light);
         assert_eq!((p.source.as_deref(), p.channel.as_deref(), p.output.as_deref()), (Some("a1b2"), Some("42"), Some("Kitchen")));
-        assert_eq!((p.volume, p.muted), (0.25, true));
+        assert_eq!((p.volume, p.muted, p.auto_update), (0.25, true, false));
     }
 
     #[test]
     fn missing_or_odd_values_get_defaults() {
         let p = Prefs::parse("theme=blue\nvolume=7\noutput=\n");
         assert_eq!(p.theme, Appearance::System);
-        assert_eq!((p.output, p.volume, p.muted), (None, 1.0, false));
+        assert_eq!((p.output, p.volume, p.muted, p.auto_update), (None, 1.0, false, true));
         assert!(p.picture_delays.is_empty());
     }
 

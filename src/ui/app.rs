@@ -90,6 +90,10 @@ pub enum Act {
     SubtitleTrack(Option<usize>),
     Seek(f64),
     Toast(String),
+    AutoUpdate(bool),
+    CheckForUpdates,
+    /// The top bar's update button: install and restart, or open the download page.
+    InstallUpdate,
 }
 
 pub struct App {
@@ -140,6 +144,7 @@ pub struct App {
     now_playing: Option<super::now_playing::NowPlaying>,
     /// Playlist sources that turned out to be Xtream logins while loading.
     upgrades: (Sender<library::Upgrade>, Receiver<library::Upgrade>),
+    pub updates: super::updates::Updates,
 }
 
 impl App {
@@ -166,6 +171,7 @@ impl App {
         .ok()
         .map(|server| (server, remote_rx));
         let mut app = App {
+            updates: super::updates::Updates::new(prefs.auto_update),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -444,6 +450,7 @@ impl App {
         self.announce();
         self.use_saved_output();
         self.poll_player(ctx);
+        self.updates.poll(ctx);
     }
 
     /// Take what the background loads brought.
@@ -799,6 +806,18 @@ impl App {
                     self.browse.channels.picked = g;
                 }
             }
+            Act::AutoUpdate(on) => {
+                self.updates.auto = on;
+                self.prefs.update(|p| p.auto_update = on);
+            }
+            Act::CheckForUpdates => self.updates.check_now(ctx),
+            Act::InstallUpdate => {
+                if let Some(restart) = self.updates.act(ctx) {
+                    self.keep_progress();
+                    crate::update::relaunch(&restart);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
             Act::Theme(t) => self.prefs.update(|p| p.theme = t),
             Act::AddSource => {
                 self.popup = None;
@@ -979,6 +998,7 @@ pub fn delay_text(ms: i32) -> String {
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.keep_progress();
+        self.updates.apply_on_exit();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
