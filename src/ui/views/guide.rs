@@ -4,8 +4,8 @@
 
 use crate::iptv::model::{Channel, Programme};
 use crate::iptv::time;
-use crate::ui::app::{Act, App};
-use crate::ui::icons::Icon;
+use crate::ui::app::{Act, App, Popup};
+use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, metrics, typography};
 use crate::ui::widgets;
 use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
@@ -46,8 +46,24 @@ impl App {
             ui.add_space(6.0);
             ui.label(egui::RichText::new("GUIDE").font(typography::meta()).color(p.faint));
             ui.add_space(6.0);
-            let group = self.browse.channels.picked.clone().unwrap_or_else(|| "All channels".into());
-            ui.label(egui::RichText::new(group).font(typography::small_strong()).color(p.text));
+            // What it shows: click to pick the favourites or another group.
+            let label = match &self.browse.channels.picked {
+                _ if self.guide_favorites => "Favorites".to_string(),
+                Some(g) => g.clone(),
+                None => "All channels".into(),
+            };
+            let text = widgets::ellipsize(ui, &label, typography::small_strong(), p.text, 320.0);
+            let (r, pick) = ui.allocate_exact_size(vec2(text.size().x + 40.0, 30.0), Sense::click());
+            let open = self.popup == Some(Popup::GuideChannels);
+            if open || pick.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(9), if open { p.hl_strong } else { p.hl });
+            }
+            icons::paint(ui.painter(), Rect::from_center_size(pos2(r.left() + 14.0, r.center().y), vec2(13.0, 13.0)), Icon::List, p.dim);
+            ui.painter().galley(pos2(r.left() + 28.0, r.center().y - text.size().y / 2.0), text, p.text);
+            self.anchor(Popup::GuideChannels, r);
+            if pick.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show another group").clicked() {
+                acts.push(Act::Popup(if open { None } else { Some(Popup::GuideChannels) }));
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if widgets::icon_button(ui, Icon::Close, 28.0, p.faint, "Close the guide (G)").clicked() {
                     acts.push(Act::ToggleGuide);
@@ -69,7 +85,13 @@ impl App {
             ui.label(egui::RichText::new(text).font(typography::body()).color(p.dim));
             return;
         };
-        let channels = self.browse.channels_in_group(catalog);
+        let channels = if self.guide_favorites {
+            let source = self.source_id();
+            let by_key = |k: &str| catalog.channels.iter().position(|c| c.key == k);
+            self.marks.favorites(&source).filter_map(by_key).filter(|&i| self.browse.shows(&catalog.channels[i].group)).collect()
+        } else {
+            self.browse.channels_in_group(catalog)
+        };
         let now = time::now();
         let t0 = (now - BEFORE) / 1800 * 1800;
         let x_of = |t: i64| NAMES + (t - t0) as f32 / 1800.0 * HALF_HOUR;
@@ -190,9 +212,13 @@ fn programme_cell(ui: &mut egui::Ui, r: Rect, channel: &Channel, prog: &Programm
     if w > 12.0 {
         let title = widgets::ellipsize(ui, &prog.title, typography::small_strong(), if faded { p.faint } else { p.text }, w);
         ui.painter().galley(pos2(r.left() + 8.0, r.top() + 7.0), title, p.text);
-        let when = if archived { format!("{} · ↺", super::bottom::hhmm(prog.start)) } else { super::bottom::hhmm(prog.start) };
-        let when = widgets::ellipsize(ui, &when, typography::meta(), if on { p.accent } else { p.faint }, w);
-        ui.painter().galley(pos2(r.left() + 8.0, r.bottom() - 7.0 - when.size().y), when, p.faint);
+        let when = widgets::ellipsize(ui, &super::bottom::hhmm(prog.start), typography::meta(), if on { p.accent } else { p.faint }, w);
+        let at = pos2(r.left() + 8.0, r.bottom() - 7.0 - when.size().y);
+        let time = Rect::from_min_size(at, when.size());
+        ui.painter().galley(at, when, p.faint);
+        if archived && time.right() + 16.0 < r.right() {
+            super::bottom::archive_mark(ui.painter(), time, p.faint);
+        }
     }
     let resp = resp.on_hover_ui(|ui| {
         ui.set_max_width(340.0);

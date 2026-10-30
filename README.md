@@ -51,13 +51,14 @@ Secret Service), never in the settings files.
   bottom panel float over it as glass and fade out when the pointer is still. Dark and
   light themes (or follow the system)
 - **Channel list:** logos, numbers, what's on now and how far along it is; groups,
-  search, **favourites** (right-click a channel, or the star) and **recently watched**;
+  search, **favourites** (right-click a channel, or the star; drag them into the order
+  you like, or move them from their right-click menu) and **recently watched**;
   hide the groups you never watch (right-click one), out of lists, search and zapping,
   behind a PIN if you like
 - **Guide:** XMLTV (gzipped or not, read as a stream so huge provider guides stay
   light), the programme on now with its progress and a strip of what's next, and the
-  **full guide** (G): the group's channels against the time, half a day back and a
-  day ahead, to play a channel or a programme from the archive
+  **full guide** (G): the channels of any group, or the favourites, against the time,
+  half a day back and a day ahead, to play a channel or a programme from the archive
 - **Catch-up:** watch a programme that already aired from the strip, or the one on now
   *from the start* — Xtream archives, and M3U `catchup` (`default`, `append`, `shift`,
   `flussonic`, with `catchup-source` templates)

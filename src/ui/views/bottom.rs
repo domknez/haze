@@ -5,7 +5,7 @@ use crate::iptv::model::Programme;
 use crate::iptv::time;
 use crate::media::Status;
 use crate::ui::app::{Act, App, Playing, Popup};
-use crate::ui::icons::Icon;
+use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, metrics, typography};
 use crate::ui::widgets;
 use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
@@ -208,15 +208,12 @@ impl App {
                     ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.5, p.accent), egui::StrokeKind::Inside);
                 }
                 let faded = prog.stop <= now && !archived;
-                let tm = if on {
-                    format!("{} · now", hhmm(prog.start))
-                } else if archived {
-                    format!("{} · ↺", hhmm(prog.start))
-                } else {
-                    hhmm(prog.start)
-                };
+                let tm = if on { format!("{} · now", hhmm(prog.start)) } else { hhmm(prog.start) };
                 let tc = if on { p.accent } else { p.faint };
-                ui.painter().text(pos2(r.left() + 10.0, r.top() + 12.0), Align2::LEFT_CENTER, tm, typography::meta(), tc);
+                let tr = ui.painter().text(pos2(r.left() + 10.0, r.top() + 12.0), Align2::LEFT_CENTER, tm, typography::meta(), tc);
+                if archived {
+                    archive_mark(ui.painter(), tr, tc);
+                }
                 let title = widgets::ellipsize(ui, &prog.title, typography::small_strong(), if faded { p.faint } else { p.text }, w - 20.0);
                 ui.painter().galley(pos2(r.left() + 10.0, r.top() + 20.0), title, p.text);
                 let resp = if archived {
@@ -328,6 +325,12 @@ pub(super) fn local_offset(t: i64) -> i64 {
         let _ = t;
         0
     }
+}
+
+/// After a programme's time (`time`, where it was drawn): it can be watched from the archive.
+pub(super) fn archive_mark(painter: &egui::Painter, time: Rect, color: egui::Color32) {
+    let r = Rect::from_center_size(pos2(time.right() + 10.0, time.center().y), vec2(10.0, 10.0));
+    icons::paint(painter, r, Icon::FromStart, color);
 }
 
 #[cfg(test)]

@@ -292,26 +292,65 @@ impl App {
         let list = std::mem::take(&mut self.browse.list);
         let salt = ("rail", self.browse.tab, self.browse.groups().picked.clone(), self.browse.open_series);
         let area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(salt);
+        // Favourites can be put in order: dragged, or moved from their menu.
+        let ordering = self.browse.tab == Tab::Favorites && list.len() > 1;
         area.show_rows(ui, metrics::CHANNEL_ROW, list.len(), |ui, range| {
-            for &index in &list[range] {
+            for at in range {
+                let index = list[at];
                 match self.browse.tab {
                     Tab::Movies => self.movie_row(ui, index, playing.as_deref(), acts),
                     Tab::Series if self.browse.open_series.is_some() => self.episode_row(ui, index, playing.as_deref(), acts),
                     Tab::Series => self.series_row(ui, index, acts),
-                    _ => self.channel_row(ui, index, playing.as_deref(), acts),
+                    _ if ordering => {
+                        let place = self.catalog.ready().map(|c| Place::of(c, &list, at));
+                        self.channel_row(ui, index, playing.as_deref(), place.as_ref(), acts);
+                    }
+                    _ => self.channel_row(ui, index, playing.as_deref(), None, acts),
                 }
+            }
+            if ordering {
+                scroll_near_edges(ui);
             }
         });
         self.browse.list = list;
+        if ordering {
+            self.carried(ui.ctx());
+        }
     }
 
-    fn channel_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
+    /// The favourite being dragged, by the pointer.
+    fn carried(&mut self, ctx: &egui::Context) {
+        let Some(lifted) = egui::DragAndDrop::payload::<Lifted>(ctx) else { return };
+        let Some(pointer) = ctx.pointer_latest_pos() else { return };
+        let Some(channel) = self.catalog.ready().and_then(|c| c.channels.iter().find(|c| c.key == lifted.0)) else { return };
+        let p = colors();
+        let name = channel.name.clone();
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        egui::Area::new(egui::Id::unique("favorite-carried"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(pointer + vec2(14.0, -12.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                widgets::popover().inner_margin(egui::Margin::symmetric(12, 7)).show(ui, |ui| {
+                    ui.label(egui::RichText::new(name).font(typography::small_strong()).color(p.text));
+                });
+            });
+    }
+
+    /// A channel; `place`: where it is among the favourites, when they can be put in order.
+    fn channel_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, place: Option<&Place>, acts: &mut Vec<Act>) {
         let p = colors();
         let Some(catalog) = self.catalog.ready() else { return };
         let channel = &catalog.channels[index];
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), Sense::click());
+        let sense = if place.is_some() { Sense::click_and_drag() } else { Sense::click() };
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::CHANNEL_ROW), sense);
+        let lifted = place.is_some() && egui::DragAndDrop::payload::<Lifted>(ui.ctx()).is_some_and(|l| l.0 == channel.key);
+        let opacity = ui.opacity();
+        if lifted {
+            ui.multiply_opacity(0.35);
+        }
         let on = playing == Some(channel.key.as_str());
-        if on || resp.hovered() {
+        if on || (resp.hovered() && !lifted) {
             ui.painter().rect_filled(rect, CornerRadius::same(11), if on { p.hl_strong } else { p.hl });
         }
         let mut x = rect.left() + 6.0;
@@ -349,11 +388,45 @@ impl App {
                 .collect();
             ui.painter().add(egui::Shape::line(pts, Stroke::new(2.5, p.accent)));
         }
+        ui.set_opacity(opacity);
         let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         if resp.clicked() {
             acts.push(Act::PlayChannel(key.clone()));
         }
+        if place.is_some() {
+            resp.dnd_set_drag_payload(Lifted(key.clone()));
+            // Dropped on the upper half of the row: before it; on the lower: after.
+            let after = ui.ctx().pointer_latest_pos().is_some_and(|ptr| ptr.y > rect.center().y);
+            if let Some(held) = resp.dnd_hover_payload::<Lifted>()
+                && held.0 != key
+            {
+                let y = if after { rect.bottom() } else { rect.top() };
+                ui.painter().hline(rect.x_range().shrink(6.0), y, Stroke::new(2.0, p.accent));
+            }
+            if let Some(held) = resp.dnd_release_payload::<Lifted>()
+                && held.0 != key
+            {
+                acts.push(Act::MoveFavorite(held.0.clone(), key.clone(), after));
+            }
+        }
         resp.context_menu(|ui| {
+            if let Some(place) = place {
+                let moves = [
+                    ("Move to the top", place.prev.as_ref().map(|_| (&place.first, false))),
+                    ("Move up", place.prev.as_ref().map(|k| (k, false))),
+                    ("Move down", place.next.as_ref().map(|k| (k, true))),
+                    ("Move to the bottom", place.next.as_ref().map(|_| (&place.last, true))),
+                ];
+                for (label, to) in moves {
+                    if let Some((target, after)) = to
+                        && ui.button(label).clicked()
+                    {
+                        acts.push(Act::MoveFavorite(key.clone(), target.clone(), after));
+                        ui.close();
+                    }
+                }
+                ui.separator();
+            }
             if ui.button(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
                 acts.push(Act::ToggleFavorite(key.clone()));
                 ui.close();
@@ -447,6 +520,50 @@ impl App {
     }
 }
 
+/// What's dragged when favourites are put in order: a channel's key.
+struct Lifted(String);
+
+/// Where a favourite is in the list on screen: the keys of the first and last, and
+/// of those either side of it.
+struct Place {
+    first: String,
+    prev: Option<String>,
+    next: Option<String>,
+    last: String,
+}
+
+impl Place {
+    fn of(catalog: &crate::iptv::model::Catalog, list: &[usize], at: usize) -> Place {
+        let key = |i: usize| catalog.channels[list[i]].key.clone();
+        Place {
+            first: key(0),
+            prev: at.checked_sub(1).map(key),
+            next: (at + 1 < list.len()).then(|| key(at + 1)),
+            last: key(list.len() - 1),
+        }
+    }
+}
+
+/// While a favourite is dragged near the top or bottom of the list, scroll it,
+/// faster the closer it gets.
+fn scroll_near_edges(ui: &egui::Ui) {
+    const EDGE: f32 = 40.0;
+    if !egui::DragAndDrop::has_payload_of_type::<Lifted>(ui.ctx()) {
+        return;
+    }
+    let Some(ptr) = ui.ctx().pointer_latest_pos() else { return };
+    let view = ui.clip_rect();
+    if !view.x_range().contains(ptr.x) {
+        return;
+    }
+    let up = (view.top() + EDGE - ptr.y).clamp(0.0, EDGE);
+    let down = (ptr.y - (view.bottom() - EDGE)).clamp(0.0, EDGE);
+    if up > 0.0 || down > 0.0 {
+        ui.scroll_with_delta(vec2(0.0, (up - down) * 0.4));
+        ui.ctx().request_repaint();
+    }
+}
+
 /// How much of a movie or episode was seen: while part of it was, a bar filling
 /// `track` (a thin strip fills bottom up, a poster along its bottom edge); once all
 /// of it was, a tick at the right of `row`.
@@ -478,7 +595,7 @@ fn all_label(tab: Tab) -> &'static str {
 }
 
 /// `hidden`: a group the viewer hid, showing while hidden groups do.
-fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool, hidden: bool) -> egui::Response {
+pub(super) fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool, hidden: bool) -> egui::Response {
     let p = colors();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), metrics::GROUP_ROW), Sense::click());
     if on || resp.hovered() {

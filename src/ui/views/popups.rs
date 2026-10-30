@@ -37,6 +37,7 @@ impl App {
                         Popup::Sources => self.sources_menu(ui, acts),
                         Popup::AudioTracks => self.tracks_menu(ui, acts),
                         Popup::Settings => self.settings_menu(ui, acts),
+                        Popup::GuideChannels => self.guide_channels_menu(ui, acts),
                     }
                 });
             });
@@ -247,6 +248,42 @@ impl App {
         }
         ui.add_space(6.0);
         ui.label(egui::RichText::new(format!("haze {}", env!("CARGO_PKG_VERSION"))).font(typography::meta()).color(colors().faint));
+    }
+}
+
+impl App {
+    /// The channels the guide can show: the favourites, all of them, or a group.
+    fn guide_channels_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        heading(ui, "Show in the guide");
+        let counts = self.browse.channels.counts.clone();
+        if counts.len() > 12 {
+            widgets::filter_field(ui, &mut self.browse.group_filter, "Filter groups", ui.available_width());
+            ui.add_space(4.0);
+        }
+        let needle = self.browse.group_filter.trim().to_lowercase();
+        let favorites = self.marks.favorites(&self.source_id()).count();
+        let picked = (!self.guide_favorites).then(|| self.browse.channels.picked.clone());
+        let mut rows: Vec<(Option<Option<String>>, String, usize)> = Vec::new();
+        if needle.is_empty() {
+            if favorites > 0 {
+                rows.push((None, "Favorites".into(), favorites));
+            }
+            rows.push((Some(None), "All channels".into(), counts.iter().map(|(_, n)| n).sum()));
+        }
+        rows.extend(counts.into_iter().filter(|(g, _)| g.to_lowercase().contains(&needle)).map(|(g, n)| (Some(Some(g.clone())), g, n)));
+        egui::ScrollArea::vertical().id_salt("guide-channels").max_height(420.0).show_rows(
+            ui,
+            crate::ui::style::metrics::GROUP_ROW,
+            rows.len(),
+            |ui, range| {
+                for (pick, name, count) in &rows[range] {
+                    let hidden = matches!(pick, Some(Some(g)) if self.browse.hidden.contains(g));
+                    if super::rail::group_row(ui, name, *count, *pick == picked, hidden).clicked() {
+                        acts.push(Act::GuideChannels(pick.clone()));
+                    }
+                }
+            },
+        );
     }
 }
 

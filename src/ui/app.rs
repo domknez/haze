@@ -28,6 +28,8 @@ pub enum Popup {
     Sources,
     AudioTracks,
     Settings,
+    /// Which channels the guide shows.
+    GuideChannels,
 }
 
 /// What the viewer did this frame; applied after drawing.
@@ -47,6 +49,11 @@ pub enum Act {
     /// Step through the list on screen: -1 previous, +1 next.
     Step(i32),
     ToggleFavorite(String),
+    /// Move a favourite (the first key) just before the second, or after it.
+    MoveFavorite(String, String, bool),
+    /// Show the favourites in the guide (None), or a group of channels (all of them
+    /// when that's None too).
+    GuideChannels(Option<Option<String>>),
     Tab(Tab),
     Group(Option<String>),
     /// Put a playlist group with the channels, movies or series; None leaves it to
@@ -106,6 +113,8 @@ pub struct App {
     pub guide_open: bool,
     /// The guide should scroll to now and the channel playing.
     pub guide_jump: bool,
+    /// The guide shows the favourites rather than the group picked.
+    pub guide_favorites: bool,
     /// The column of groups beside the channels.
     pub groups_open: bool,
     pub popup: Option<Popup>,
@@ -175,6 +184,7 @@ impl App {
             rail_open: true,
             guide_open: false,
             guide_jump: false,
+            guide_favorites: false,
             groups_open: true,
             popup: None,
             form: None,
@@ -701,6 +711,11 @@ impl App {
                 self.marks.toggle_favorite(&source, &key);
                 self.marks_serial += 1;
             }
+            Act::MoveFavorite(key, target, after) => {
+                let source = self.source_id();
+                self.marks.move_favorite(&source, &key, &target, after);
+                self.marks_serial += 1;
+            }
             Act::Tab(t) => {
                 self.prefs.update(|p| p.tab = Some(t.key().to_string()));
                 self.browse.tab = t;
@@ -773,6 +788,16 @@ impl App {
                 self.guide_open = !self.guide_open;
                 self.guide_jump = self.guide_open;
                 self.popup = None;
+            }
+            Act::GuideChannels(pick) => {
+                self.popup = None;
+                self.browse.group_filter.clear();
+                self.guide_jump = true;
+                self.guide_favorites = pick.is_none();
+                if let Some(g) = pick {
+                    self.prefs.update(|p| p.group = g.clone());
+                    self.browse.channels.picked = g;
+                }
             }
             Act::Theme(t) => self.prefs.update(|p| p.theme = t),
             Act::AddSource => {

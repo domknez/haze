@@ -6,12 +6,13 @@ The first version of haze:
 
 - Sources: M3U links and files (or a file dropped on the window) and Xtream Codes
   logins, several at once; passwords in the system keychain
-- Live channels with logos, groups, search, favourites and recently watched; zapping
+- Live channels with logos, groups, search, favourites (in an order of your own:
+  dragged, or moved from their right-click menu) and recently watched; zapping
   with ↑ ↓, the last channel back on the next start, reconnecting when a stream drops
 - Hide groups (right-click one): they leave the lists, search and zapping until
   Settings › Show hidden groups, which lasts until haze quits; a PIN can lock them
 - Guide (XMLTV) with the programme on now and what's next, the full guide (G) with
-  the group's channels against the time, and catch-up from the archive (Xtream, and
+  the channels of any group, or the favourites, against the time, and catch-up from the archive (Xtream, and
   M3U `catchup` modes)
 - An Xtream panel's playlist link (`get.php`) signs in to the panel's API, for
   posters, ratings, plots and seasons; sources saved as such a link move over on

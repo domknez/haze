@@ -304,6 +304,20 @@ impl Marks {
         self.save();
     }
 
+    /// Move a favourite of `source` beside another of its favourites: just before
+    /// `target`, or just after it.
+    pub fn move_favorite(&mut self, source: &str, key: &str, target: &str, after: bool) {
+        let at = |list: &Vec<(String, String)>, key: &str| list.iter().position(|(s, k)| s == source && k == key);
+        if key == target || at(&self.favorites, target).is_none() {
+            return;
+        }
+        let Some(from) = at(&self.favorites, key) else { return };
+        let moved = self.favorites.remove(from);
+        let to = at(&self.favorites, target).unwrap_or(from) + usize::from(after);
+        self.favorites.insert(to, moved);
+        self.save();
+    }
+
     pub fn favorites<'a>(&'a self, source: &'a str) -> impl Iterator<Item = &'a str> {
         self.favorites.iter().filter(move |(s, _)| s == source).map(|(_, k)| k.as_str())
     }
@@ -494,6 +508,27 @@ mod tests {
         assert_eq!(p.resume_at("a", "m"), Some(600.0));
         p.forget_source("a");
         assert_eq!(p.fraction("a", "m"), None);
+    }
+
+    #[test]
+    fn favorites_move_among_their_source() {
+        let mut m = Marks::default();
+        for (s, k) in [("a", "1"), ("b", "x"), ("a", "2"), ("a", "3"), ("b", "y")] {
+            m.toggle_favorite(s, k);
+        }
+        let order = |m: &Marks| m.favorites("a").collect::<Vec<_>>().join("");
+        m.move_favorite("a", "3", "1", false);
+        assert_eq!(order(&m), "312");
+        m.move_favorite("a", "3", "2", true);
+        assert_eq!(order(&m), "123");
+        m.move_favorite("a", "1", "2", true);
+        assert_eq!(order(&m), "213");
+        // Another source's favourite, or one that isn't there, moves nothing.
+        m.move_favorite("a", "2", "x", false);
+        m.move_favorite("a", "9", "1", false);
+        m.move_favorite("a", "2", "2", true);
+        assert_eq!(order(&m), "213");
+        assert_eq!(m.favorites("b").collect::<Vec<_>>(), ["x", "y"]);
     }
 
     #[test]
