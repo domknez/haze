@@ -37,7 +37,8 @@ done
 lipo -create -output "$app/Contents/MacOS/haze" \
   target/aarch64-apple-darwin/release/haze target/x86_64-apple-darwin/release/haze
 # Nothing from Homebrew or elsewhere outside the system may be linked.
-if otool -L "$app/Contents/MacOS/haze" | tail -n +2 | grep -v -e /System/ -e /usr/lib/; then
+# (otool heads each architecture's list with a line ending in a colon.)
+if otool -L "$app/Contents/MacOS/haze" | grep -v ':$' | grep -v -e /System/ -e /usr/lib/; then
   echo "haze links libraries outside the system (above)" >&2
   exit 1
 fi
