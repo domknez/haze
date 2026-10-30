@@ -20,11 +20,17 @@ export MACOSX_DEPLOYMENT_TARGET=11.0
 rm -rf "$app" "$dmg"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
+# ffmpeg's VideoToolbox code asks for the macOS version (`@available`), answered by
+# clang's runtime library, which rustc's link line leaves out.
+clang_rt=$(clang --print-resource-dir)/lib/darwin/libclang_rt.osx.a
+
 for arch in arm64 x86_64; do
   target=$([ $arch = arm64 ] && echo aarch64-apple-darwin || echo x86_64-apple-darwin)
   ffmpeg=$PWD/target/ffmpeg-$arch
   [ -f "$ffmpeg/lib/libavcodec.a" ] || ./scripts/build-ffmpeg.sh "$ffmpeg" "$arch"
   rustup target add "$target" >/dev/null 2>&1 || true
+  triple=$(echo "$target" | tr a-z- A-Z_)
+  env "CARGO_TARGET_${triple}_RUSTFLAGS=-C link-arg=$clang_rt" \
   PKG_CONFIG_PATH=$ffmpeg/lib/pkgconfig PKG_CONFIG_ALLOW_CROSS=1 \
     cargo build --release --locked --target "$target" --features static-ffmpeg
 done
