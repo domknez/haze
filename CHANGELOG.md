@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-11-05)
+
 - Full screen on macOS is really full screen: the menu bar, the title bar and the Dock
   stay away, even with the pointer at the top of the screen. F, Esc or a double-click
   leave it
