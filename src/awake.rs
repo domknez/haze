@@ -10,14 +10,24 @@ pub struct Awake(#[cfg(target_os = "macos")] objc2::rc::Retained<objc2::runtime:
 impl Awake {
     pub fn begin() -> Self {
         #[cfg(target_os = "macos")]
-        {
-            use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
-            // User-initiated and latency-critical: no App Nap, no idle sleep, timers on time.
-            let reason = NSString::from_str("Playing video");
-            Awake(NSProcessInfo::processInfo().beginActivityWithOptions_reason(NSActivityOptions::UserInteractive, &reason))
-        }
+        // User-initiated and latency-critical: no App Nap, no idle sleep, timers on time.
+        return Self::activity(objc2_foundation::NSActivityOptions::UserInteractive, "Playing video");
         #[cfg(not(target_os = "macos"))]
         Awake()
+    }
+
+    /// Keeps the display from dimming and going to sleep while a picture plays.
+    pub fn screen() -> Self {
+        #[cfg(target_os = "macos")]
+        return Self::activity(objc2_foundation::NSActivityOptions::IdleDisplaySleepDisabled, "Showing video");
+        #[cfg(not(target_os = "macos"))]
+        Awake()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activity(options: objc2_foundation::NSActivityOptions, reason: &str) -> Self {
+        use objc2_foundation::{NSProcessInfo, NSString};
+        Awake(NSProcessInfo::processInfo().beginActivityWithOptions_reason(options, &NSString::from_str(reason)))
     }
 }
 

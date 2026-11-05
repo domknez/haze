@@ -145,6 +145,8 @@ pub struct App {
     /// Playlist sources that turned out to be Xtream logins while loading.
     upgrades: (Sender<library::Upgrade>, Receiver<library::Upgrade>),
     pub updates: super::updates::Updates,
+    /// Held while a picture plays, so the display doesn't dim or sleep under it.
+    screen: Option<crate::awake::Awake>,
 }
 
 impl App {
@@ -172,6 +174,7 @@ impl App {
         .map(|server| (server, remote_rx));
         let mut app = App {
             updates: super::updates::Updates::new(prefs.auto_update),
+            screen: None,
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -853,6 +856,18 @@ impl App {
         }
     }
 
+    /// Let the display sleep only when nothing is playing: paused, ended or failed.
+    fn keep_screen_on(&mut self) {
+        let playing = self
+            .session
+            .player
+            .as_ref()
+            .is_some_and(|p| !p.paused() && matches!(p.status(), Status::Opening | Status::Playing | Status::Buffering));
+        if playing != self.screen.is_some() {
+            self.screen = playing.then(crate::awake::Awake::screen);
+        }
+    }
+
     fn update_volume(&self) {
         if let Some(p) = &self.session.player {
             p.set_volume(self.effective_volume());
@@ -1007,6 +1022,7 @@ impl eframe::App for App {
         self.sync_appearance(&ctx);
         self.logos.begin_frame();
         self.poll(&ctx);
+        self.keep_screen_on();
         self.track_pointer(&ctx);
         let mut acts = Vec::new();
         self.shortcuts(&ctx, &mut acts);
