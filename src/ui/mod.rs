@@ -9,9 +9,12 @@
 //! - [`logos`]: channel logos and posters; [`load`]: background loads
 //! - [`now_playing`]: media keys and the OS "Now Playing" widget
 //! - [`updates`]: new releases, downloaded in the background
+//! - `fullscreen`: full screen on macOS without the menu bar and the Dock
 
 mod app;
 mod browse;
+#[cfg(target_os = "macos")]
+mod fullscreen;
 mod icons;
 mod load;
 mod logos;
@@ -41,5 +44,13 @@ pub fn run() -> eframe::Result {
     #[cfg(target_os = "macos")]
     let viewport = viewport.with_fullsize_content_view(true).with_title_shown(false).with_titlebar_shown(false);
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("haze", options, Box::new(|cc| Ok(Box::new(app::App::new(cc)))))
+    eframe::run_native(
+        "haze",
+        options,
+        Box::new(|cc| {
+            #[cfg(target_os = "macos")]
+            fullscreen::hide_bars();
+            Ok(Box::new(app::App::new(cc)))
+        }),
+    )
 }

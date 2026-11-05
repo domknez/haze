@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Full screen on macOS is really full screen: the menu bar, the title bar and the Dock
+  stay away, even with the pointer at the top of the screen. F, Esc or a double-click
+  leave it
+
 ## 0.1.0 (2026-10-30)
 
 The first version of haze:
