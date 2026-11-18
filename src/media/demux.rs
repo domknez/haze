@@ -1,6 +1,6 @@
 //! Opening a stream and handing its packets to the audio and video threads.
 
-use super::{AudioCmd, DemuxCmd, Shared, Status, StreamInfo, Track, audio, codec_label, subtitle, video};
+use super::{AudioCmd, DemuxCmd, Error, Shared, Status, StreamInfo, Track, audio, codec_label, subtitle, video};
 use crate::sync::Lock;
 use ffmpeg::media::Type;
 use ffmpeg_next as ffmpeg;
@@ -101,7 +101,7 @@ impl Drop for Demuxer<'_> {
     }
 }
 
-fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
+fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), Error> {
     let Some(mut demuxer) = Demuxer::open(shared, request)? else { return Ok(()) };
     demuxer.start(settings)?;
     if let Some(at) = request.start_at {
@@ -121,19 +121,18 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
 impl<'a> Demuxer<'a> {
     /// Open the stream (the best quality of an HLS playlist) and pick what plays;
     /// None when stopped meanwhile.
-    fn open(shared: &'a Arc<Shared>, request: &super::Request) -> Result<Option<Self>, String> {
+    fn open(shared: &'a Arc<Shared>, request: &super::Request) -> Result<Option<Self>, Error> {
         let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
         let url = super::hls::pick_variant(&request.url, user_agent, request.referrer.as_deref()).unwrap_or_else(|| request.url.clone());
         if shared.stopped() {
             return Ok(None);
         }
         let stop = shared.clone();
-        let mut input = ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request))
-            .map_err(|e| describe(&e))?;
+        let mut input = ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request))?;
         let video_index = best_video(&input);
         let audio_index = best_audio(&mut input, video_index);
         if video_index.is_none() && audio_index.is_none() {
-            return Err("the channel isn't sending anything right now".into());
+            return Err(Error::Empty);
         }
         // Leave out every other stream: an HLS playlist offers each quality as streams of
         // its own, and the ones left in are all downloaded.
@@ -156,7 +155,7 @@ impl<'a> Demuxer<'a> {
     }
 
     /// Start the decoding threads and say what the stream is.
-    fn start(&mut self, settings: audio::Settings) -> Result<(), String> {
+    fn start(&mut self, settings: audio::Settings) -> Result<(), Error> {
         let mut info = self.describe_streams();
         if let Some(stream) = self.video_index.and_then(|i| self.input.stream(i)) {
             let decoder = video_decoder(&stream)?;
@@ -187,7 +186,7 @@ impl<'a> Demuxer<'a> {
     }
 
     /// Read and pass on packets, and obey commands, until stopped.
-    fn pump(&mut self, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
+    fn pump(&mut self, commands: &Receiver<DemuxCmd>) -> Result<(), Error> {
         while !self.shared.stopped() {
             self.drop_unheard();
             if let Some(command) = self.next_command(commands) {
@@ -316,7 +315,7 @@ impl<'a> Demuxer<'a> {
     }
 
     /// Read a packet and pass it on; false when the decoders are gone.
-    fn read_packet(&mut self) -> Result<bool, String> {
+    fn read_packet(&mut self) -> Result<bool, Error> {
         let mut packet = ffmpeg::Packet::empty();
         match packet.read(&mut self.input) {
             Ok(()) => Ok(self.pass_on(packet)),
@@ -326,7 +325,7 @@ impl<'a> Demuxer<'a> {
             }
             Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => Ok(true),
             Err(_) if self.shared.stopped() => Ok(false),
-            Err(e) => Err(describe(&e)),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -373,8 +372,8 @@ impl<'a> Demuxer<'a> {
     }
 }
 
-fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>, String> {
-    std::thread::Builder::new().name(name.into()).spawn(f).map_err(|e| e.to_string())
+fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>, Error> {
+    std::thread::Builder::new().name(name.into()).spawn(f).map_err(|e| Error::Start(e.to_string()))
 }
 
 /// Go to `t` seconds in and drop what the decoders have queued; false when the
@@ -435,19 +434,19 @@ fn set_discard(input: &mut ffmpeg::format::context::Input, index: usize, discard
     }
 }
 
-fn video_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Video, String> {
-    let mut ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| e.to_string())?;
+fn video_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Video, Error> {
+    let mut ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| Error::Decode(format!("the picture: {e}")))?;
     if !super::hwaccel::attach(&mut ctx) {
         // In software, a few frame threads: 1080p50 H.264 on one core is too much for
         // older machines, and every thread holds frames of its own.
         ctx.set_threading(ffmpeg::codec::threading::Config { kind: ffmpeg::codec::threading::Type::Frame, count: 4 });
     }
-    ctx.decoder().video().map_err(|e| format!("can't decode the picture: {e}"))
+    ctx.decoder().video().map_err(|e| Error::Decode(format!("the picture: {e}")))
 }
 
-fn audio_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Audio, String> {
-    let ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| e.to_string())?;
-    ctx.decoder().audio().map_err(|e| format!("can't decode the sound: {e}"))
+fn audio_decoder(stream: &ffmpeg::Stream) -> Result<ffmpeg::decoder::Audio, Error> {
+    let ctx = ffmpeg::codec::Context::from_parameters(stream.parameters()).map_err(|e| Error::Decode(format!("the sound: {e}")))?;
+    ctx.decoder().audio().map_err(|e| Error::Decode(format!("the sound: {e}")))
 }
 
 fn track_label(stream: &ffmpeg::Stream, n: usize) -> String {
@@ -459,18 +458,5 @@ fn track_label(stream: &ffmpeg::Stream, n: usize) -> String {
         (Some(t), None) => t.to_string(),
         (None, Some(l)) => l.to_ascii_uppercase(),
         (None, None) => format!("Track {}", n + 1),
-    }
-}
-
-/// ffmpeg's errors in words for the screen.
-fn describe(e: &ffmpeg::Error) -> String {
-    match e {
-        ffmpeg::Error::HttpUnauthorized | ffmpeg::Error::HttpForbidden => {
-            "the provider refused the stream (login or connection limit)".into()
-        }
-        ffmpeg::Error::HttpNotFound => "the stream was not found".into(),
-        ffmpeg::Error::HttpServerError => "the provider's server failed".into(),
-        ffmpeg::Error::Exit => "stopped".into(),
-        other => other.to_string(),
     }
 }

@@ -2,7 +2,7 @@
 //! again when the provider drops it.
 
 use crate::iptv::model::{Episode, Programme};
-use crate::media::{Player, Status};
+use crate::media::{Error, Player, Status};
 use std::time::{Duration, Instant};
 
 /// What's playing.
@@ -37,6 +37,17 @@ impl Playing {
 
 /// Times a live channel that failed is opened again before giving up.
 const RETRIES: u32 = 5;
+
+/// How many times a failure is worth trying again: once when the provider said no
+/// (a connection that's only now closing at its end), never when the stream can't
+/// be decoded, a few times otherwise (the network, a server that hiccups).
+fn attempts(status: &Status) -> u32 {
+    match status {
+        Status::Failed(Error::Refused | Error::NotFound) => 1,
+        Status::Failed(Error::Decode(_) | Error::Start(_)) => 0,
+        _ => RETRIES,
+    }
+}
 
 #[derive(Default)]
 pub struct Session {
@@ -99,7 +110,7 @@ impl Session {
     /// without playing: a provider isn't asked for a dead stream over and over.
     pub fn next(&mut self, status: &Status, now: Instant) -> Next {
         match status {
-            Status::Failed(_) | Status::Ended if self.live() && self.retries < RETRIES => {
+            Status::Failed(_) | Status::Ended if self.live() && self.retries < attempts(status) => {
                 let at = *self.retry_at.get_or_insert_with(|| now + Duration::from_secs(1 + u64::from(self.retries)));
                 if now < at {
                     return Next::Wait(at);
@@ -137,7 +148,7 @@ mod tests {
     fn opens_a_failed_channel_again_waiting_longer_each_time() {
         let mut s = live();
         let t = Instant::now();
-        let failed = Status::Failed("gone".into());
+        let failed = Status::Failed(Error::Stream("gone".into()));
         assert_eq!(s.next(&failed, t), Next::Wait(t + Duration::from_secs(1)));
         assert_eq!(s.next(&failed, t + Duration::from_millis(500)), Next::Wait(t + Duration::from_secs(1)));
         assert_eq!(s.next(&failed, t + Duration::from_secs(1)), Next::Reopen);
@@ -148,7 +159,7 @@ mod tests {
     #[test]
     fn gives_up_after_a_few_attempts_until_it_plays_again() {
         let mut s = live();
-        let failed = Status::Failed("gone".into());
+        let failed = Status::Failed(Error::Stream("gone".into()));
         let t = Instant::now();
         let fail = |s: &mut Session| {
             let Next::Wait(at) = s.next(&failed, t) else { return s.next(&failed, t) };
@@ -162,6 +173,17 @@ mod tests {
         assert_eq!(fail(&mut s), Next::Nothing);
         s.next(&Status::Playing, t);
         assert_eq!(fail(&mut s), Next::Reopen);
+    }
+
+    #[test]
+    fn a_refusal_is_tried_once_and_a_broken_stream_not_at_all() {
+        let (mut s, t) = (live(), Instant::now());
+        let refused = Status::Failed(Error::Refused);
+        assert_eq!(s.next(&refused, t), Next::Wait(t + Duration::from_secs(1)));
+        assert_eq!(s.next(&refused, t + Duration::from_secs(1)), Next::Reopen);
+        s.retry_at = None;
+        assert_eq!(s.next(&refused, t + Duration::from_secs(9)), Next::Nothing);
+        assert_eq!(live().next(&Status::Failed(Error::Decode("the picture".into())), t), Next::Nothing);
     }
 
     #[test]
@@ -184,6 +206,6 @@ mod tests {
         assert_eq!(channel.next(&Status::Ended, t + Duration::from_secs(1)), Next::Reopen);
         let mut movie = watching(Playing::Movie { key: "5".into() });
         assert_eq!(movie.next(&Status::Ended, Instant::now()), Next::Ended);
-        assert_eq!(movie.next(&Status::Failed("gone".into()), Instant::now()), Next::Nothing);
+        assert_eq!(movie.next(&Status::Failed(Error::Stream("gone".into())), Instant::now()), Next::Nothing);
     }
 }

@@ -32,6 +32,38 @@ pub struct Request {
     pub start_at: Option<f64>,
 }
 
+/// Why a stream stopped playing.
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+pub enum Error {
+    #[error("the provider refused the stream (login or connection limit)")]
+    Refused,
+    #[error("the stream was not found")]
+    NotFound,
+    #[error("the provider's server failed")]
+    ServerFailed,
+    #[error("the channel isn't sending anything right now")]
+    Empty,
+    /// The connection or the stream itself (a network error, a broken container).
+    #[error("{0}")]
+    Stream(String),
+    #[error("can't decode {0}")]
+    Decode(String),
+    #[error("couldn't start playing: {0}")]
+    Start(String),
+}
+
+impl From<ffmpeg_next::Error> for Error {
+    fn from(e: ffmpeg_next::Error) -> Self {
+        use ffmpeg_next::Error as E;
+        match e {
+            E::HttpUnauthorized | E::HttpForbidden => Error::Refused,
+            E::HttpNotFound => Error::NotFound,
+            E::HttpServerError => Error::ServerFailed,
+            other => Error::Stream(other.to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Status {
     Opening,
@@ -39,7 +71,7 @@ pub enum Status {
     /// Waiting for more of the stream.
     Buffering,
     Ended,
-    Failed(String),
+    Failed(Error),
 }
 
 /// What the stream is, for the info line.
@@ -208,7 +240,7 @@ impl Player {
             }
             demux::run(s, r, settings, demux_rx);
         });
-        let thread = thread.inspect_err(|e| shared.set_status(Status::Failed(format!("couldn't start playing: {e}")))).ok();
+        let thread = thread.inspect_err(|e| shared.set_status(Status::Failed(Error::Start(e.to_string())))).ok();
         Player { shared, audio: audio_tx, demux: demux_tx, request, thread }
     }
 
