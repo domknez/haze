@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-11-18)
+
 - A movie or an episode carried on from where it was left shows the right position,
   and its place is no longer lost after ten seconds
 - Passwords of Xtream logins no longer end up in the log; a keychain that can't be
