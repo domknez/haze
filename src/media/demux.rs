@@ -4,7 +4,7 @@ use super::{AudioCmd, DemuxCmd, Shared, Status, StreamInfo, Track, audio, codec_
 use ffmpeg::media::Type;
 use ffmpeg_next as ffmpeg;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Once};
 
 /// Packets that may wait for the video thread. The picture waits for the sound,
@@ -67,217 +67,278 @@ fn options(request: &super::Request) -> ffmpeg::Dictionary<'static> {
     o
 }
 
+/// The subtitle track shown: its index, decoder and time base.
+type SubtitleTrack = (usize, ffmpeg::decoder::Subtitle, ffmpeg::Rational);
+
+/// An open stream being read: which of its streams play, and where their packets go.
+struct Demuxer<'a> {
+    shared: &'a Arc<Shared>,
+    live: bool,
+    input: ffmpeg::format::context::Input,
+    video_index: Option<usize>,
+    audio_index: Option<usize>,
+    video_tx: Option<SyncSender<Packet>>,
+    audio_tx: Option<SyncSender<Packet>>,
+    /// Output commands when there's no sound to take them.
+    unheard: Option<Receiver<AudioCmd>>,
+    subtitles: Option<SubtitleTrack>,
+    /// Read to the end; waiting for a seek or the stop.
+    ended: bool,
+}
+
 fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
-    let stop = shared.clone();
-    let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
-    let url = super::hls::pick_variant(&request.url, user_agent, request.referrer.as_deref()).unwrap_or_else(|| request.url.clone());
-    if shared.stopped() {
-        return Ok(());
+    let Some(mut demuxer) = Demuxer::open(shared, request)? else { return Ok(()) };
+    demuxer.start(settings)?;
+    loop {
+        if shared.stopped() {
+            return Ok(());
+        }
+        demuxer.drop_unheard();
+        if let Some(command) = demuxer.next_command(commands) {
+            demuxer.obey(command);
+        }
+        if demuxer.ended {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            continue;
+        }
+        if !demuxer.read_packet()? {
+            return Ok(());
+        }
     }
-    let mut input =
-        ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request)).map_err(|e| describe(&e))?;
-    let video_index = best_video(&input);
-    let mut audio_index = best_audio(&mut input, video_index);
-    if video_index.is_none() && audio_index.is_none() {
-        return Err("the channel isn't sending anything right now".into());
-    }
-    // Leave out every other stream: an HLS playlist offers each quality as streams of
-    // its own, and the ones left in are all downloaded.
-    for i in 0..input.nb_streams() as usize {
-        set_discard(&mut input, i, Some(i) != video_index && Some(i) != audio_index);
+}
+
+impl<'a> Demuxer<'a> {
+    /// Open the stream (the best quality of an HLS playlist) and pick what plays;
+    /// None when stopped meanwhile.
+    fn open(shared: &'a Arc<Shared>, request: &super::Request) -> Result<Option<Self>, String> {
+        let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
+        let url = super::hls::pick_variant(&request.url, user_agent, request.referrer.as_deref()).unwrap_or_else(|| request.url.clone());
+        if shared.stopped() {
+            return Ok(None);
+        }
+        let stop = shared.clone();
+        let mut input = ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request))
+            .map_err(|e| describe(&e))?;
+        let video_index = best_video(&input);
+        let audio_index = best_audio(&mut input, video_index);
+        if video_index.is_none() && audio_index.is_none() {
+            return Err("the channel isn't sending anything right now".into());
+        }
+        // Leave out every other stream: an HLS playlist offers each quality as streams of
+        // its own, and the ones left in are all downloaded.
+        for i in 0..input.nb_streams() as usize {
+            set_discard(&mut input, i, Some(i) != video_index && Some(i) != audio_index);
+        }
+        Ok(Some(Demuxer {
+            shared,
+            live: request.live,
+            input,
+            video_index,
+            audio_index,
+            video_tx: None,
+            audio_tx: None,
+            unheard: None,
+            subtitles: None,
+            ended: false,
+        }))
     }
 
-    let mut info = StreamInfo {
-        duration: (input.duration() > 0).then(|| input.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)),
-        audio_tracks: input
-            .streams()
-            .filter(|s| s.parameters().medium() == Type::Audio)
-            .enumerate()
-            .map(|(n, s)| Track { stream: s.index(), label: track_label(&s, n) })
-            .collect(),
-        ..StreamInfo::default()
-    };
-    info.audio_track = info.audio_tracks.iter().position(|t| Some(t.stream) == audio_index);
-    info.subtitle_tracks = input
-        .streams()
-        .filter(|s| s.parameters().medium() == Type::Subtitle && subtitle::is_text(s.parameters().id()))
-        .enumerate()
-        .map(|(n, s)| Track { stream: s.index(), label: track_label(&s, n) })
-        .collect();
-
-    let video_tx = match video_index.and_then(|i| input.stream(i)) {
-        Some(stream) => {
+    /// Start the decoding threads and say what the stream is.
+    fn start(&mut self, settings: audio::Settings) -> Result<(), String> {
+        let mut info = self.describe_streams();
+        if let Some(stream) = self.video_index.and_then(|i| self.input.stream(i)) {
             let decoder = video_decoder(&stream)?;
             info.video_codec = decoder.codec().map(|c| codec_label(c.name()));
             (info.width, info.height) = (decoder.width(), decoder.height());
             let fps = stream.avg_frame_rate();
             info.fps = (fps.numerator() > 0 && fps.denominator() > 0).then(|| fps.numerator() as f32 / fps.denominator() as f32);
             let (tx, rx) = sync_channel(VIDEO_QUEUE);
-            let (s, tb, has_audio) = (shared.clone(), stream.time_base(), audio_index.is_some());
-            std::thread::Builder::new()
-                .name("video".into())
-                .spawn(move || video::run(s, decoder, tb, rx, has_audio))
-                .map_err(|e| e.to_string())?;
-            Some(tx)
+            let (s, tb, has_audio) = (self.shared.clone(), stream.time_base(), self.audio_index.is_some());
+            spawn("video", move || video::run(s, decoder, tb, rx, has_audio))?;
+            self.video_tx = Some(tx);
         }
-        None => None,
-    };
-
-    let mut audio_settings = Some(settings);
-    let mut audio_tx: Option<SyncSender<Packet>> = None;
-    let mut pending_audio_cmds = None;
-    match audio_index.and_then(|i| input.stream(i)) {
-        Some(stream) => {
-            let decoder = audio_decoder(&stream)?;
-            info.audio_codec = decoder.codec().map(|c| codec_label(c.name()));
-            info.audio_channels = decoder.channels();
-            let (tx, rx) = sync_channel(AUDIO_QUEUE);
-            let (s, tb, settings) = (shared.clone(), stream.time_base(), audio_settings.take().expect("audio settings"));
-            std::thread::Builder::new()
-                .name("audio".into())
-                .spawn(move || audio::run(s, decoder, tb, rx, settings))
-                .map_err(|e| e.to_string())?;
-            audio_tx = Some(tx);
+        match self.audio_index.and_then(|i| self.input.stream(i)) {
+            Some(stream) => {
+                let decoder = audio_decoder(&stream)?;
+                info.audio_codec = decoder.codec().map(|c| codec_label(c.name()));
+                info.audio_channels = decoder.channels();
+                let (tx, rx) = sync_channel(AUDIO_QUEUE);
+                let (s, tb) = (self.shared.clone(), stream.time_base());
+                spawn("audio", move || audio::run(s, decoder, tb, rx, settings))?;
+                self.audio_tx = Some(tx);
+            }
+            None => self.unheard = Some(settings.commands),
         }
-        // No sound: commands for the output have nowhere to go.
-        None => pending_audio_cmds = audio_settings.take().map(|s| s.commands),
+        *self.shared.info.lock().unwrap_or_else(|e| e.into_inner()) = info;
+        self.shared.set_status(Status::Buffering);
+        Ok(())
     }
-    *shared.info.lock().unwrap_or_else(|e| e.into_inner()) = info;
-    shared.set_status(Status::Buffering);
 
-    // The subtitle track shown: its index, decoder and time base.
-    let mut subtitles: Option<(usize, ffmpeg::decoder::Subtitle, ffmpeg::Rational)> = None;
-    let mut ended = false;
-    loop {
-        if shared.stopped() {
-            return Ok(());
-        }
-        if let Some(rx) = &pending_audio_cmds {
-            while let Ok(AudioCmd::Volume(_) | AudioCmd::Output(_)) = rx.try_recv() {}
-        }
-        // A speaker that threw its buffer away on pause: carry on from where it paused.
-        let resume = shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let command = match resume {
-            Some(t) if !request.live => Ok(DemuxCmd::Seek(t)),
-            _ => commands.try_recv(),
+    /// The length and the audio and subtitle tracks there are to pick from.
+    fn describe_streams(&self) -> StreamInfo {
+        let tracks = |medium: Type, usable: &dyn Fn(&ffmpeg::Stream) -> bool| -> Vec<Track> {
+            self.input
+                .streams()
+                .filter(|s| s.parameters().medium() == medium && usable(s))
+                .enumerate()
+                .map(|(n, s)| Track { stream: s.index(), label: track_label(&s, n) })
+                .collect()
         };
-        match command {
-            Ok(DemuxCmd::Seek(t)) => {
-                if seek(&mut input, t, shared, [&video_tx, &audio_tx]) {
-                    // A track's cues come again from where it's read; a file's stay.
-                    if subtitles.is_some() {
-                        shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
-                    }
-                    ended = false;
-                }
-            }
-            Ok(DemuxCmd::AudioTrack(i)) => {
-                if let (Some(tx), Some(stream)) = (&audio_tx, input.stream(i))
-                    && stream.parameters().medium() == Type::Audio
-                {
-                    match audio_decoder(&stream) {
-                        Ok(d) => {
-                            let _ = tx.send(Packet::Decoder(d, stream.time_base()));
-                            if let Some(old) = audio_index {
-                                set_discard(&mut input, old, true);
-                            }
-                            set_discard(&mut input, i, false);
-                            audio_index = Some(i);
-                            let mut info = shared.info.lock().unwrap_or_else(|e| e.into_inner());
-                            info.audio_track = info.audio_tracks.iter().position(|t| t.stream == i);
-                        }
-                        Err(e) => log_warn!("audio track {i}: {e}"),
-                    }
-                }
-            }
-            Ok(DemuxCmd::Subtitles(track)) => {
-                if let Some((old, ..)) = subtitles.take() {
-                    set_discard(&mut input, old, true);
-                    shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
-                }
-                if let Some((i, stream)) = track.and_then(|i| Some((i, input.stream(i)?))) {
-                    match ffmpeg::codec::Context::from_parameters(stream.parameters()).and_then(|c| c.decoder().subtitle()) {
-                        Ok(d) => {
-                            let tb = stream.time_base();
-                            set_discard(&mut input, i, false);
-                            subtitles = Some((i, d, tb));
-                            // What's been read ahead went by without its subtitles:
-                            // read it again from what's playing.
-                            if !request.live
-                                && let Some(t) = shared.clock.now()
-                                && seek(&mut input, t, shared, [&video_tx, &audio_tx])
-                            {
-                                ended = false;
-                            }
-                        }
-                        Err(e) => log_warn!("subtitle track {i}: {e}"),
-                    }
-                }
-                let shown = subtitles.as_ref().map(|(i, ..)| *i);
-                let mut info = shared.info.lock().unwrap_or_else(|e| e.into_inner());
-                info.subtitle_track = shown.and_then(|i| info.subtitle_tracks.iter().position(|t| t.stream == i));
-                (shared.repaint)();
-            }
-            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
-        }
-        if ended {
-            // Played to the end: wait for a seek or the stop.
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            continue;
-        }
-
-        let mut packet = ffmpeg::Packet::empty();
-        match packet.read(&mut input) {
-            Ok(()) => {
-                let index = packet.stream();
-                if let Some((i, decoder, tb)) = &mut subtitles
-                    && *i == index
-                {
-                    let mut sub = ffmpeg::Subtitle::new();
-                    if let (Some(pts), Ok(true)) = (packet.pts(), decoder.decode(&packet, &mut sub)) {
-                        let seconds = |t: i64| t as f64 * f64::from(*tb);
-                        let duration = (packet.duration() > 0).then(|| seconds(packet.duration()));
-                        let mut cues = shared.cues.lock().unwrap_or_else(|e| e.into_inner());
-                        for cue in subtitle::cues(&sub, seconds(pts), duration) {
-                            cues.add(cue);
-                        }
-                    }
-                    continue;
-                }
-                let target = if Some(index) == video_index {
-                    &video_tx
-                } else if Some(index) == audio_index {
-                    &audio_tx
-                } else {
-                    continue;
-                };
-                // Blocks while the queue is full: that's how the stream is paced.
-                if let Some(tx) = target
-                    && tx.send(Packet::Data(packet, shared.epoch.load(Ordering::Relaxed))).is_err()
-                {
-                    return Ok(());
-                }
-            }
-            Err(ffmpeg::Error::Eof) => {
-                // The decoding threads play out what's queued; the last one to get
-                // to the end marks the stream ended.
-                let consumers: Vec<_> = [&video_tx, &audio_tx].into_iter().flatten().collect();
-                shared.finishing.store(consumers.len() as u8, Ordering::Release);
-                let epoch = shared.epoch.load(Ordering::Relaxed);
-                for tx in consumers {
-                    let _ = tx.send(Packet::End(epoch));
-                }
-                ended = true;
-            }
-            Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => {}
-            Err(e) => {
-                if shared.stopped() {
-                    return Ok(());
-                }
-                return Err(describe(&e));
-            }
+        let duration = self.input.duration();
+        let audio_tracks = tracks(Type::Audio, &|_| true);
+        StreamInfo {
+            duration: (duration > 0).then(|| duration as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)),
+            audio_track: audio_tracks.iter().position(|t| Some(t.stream) == self.audio_index),
+            audio_tracks,
+            subtitle_tracks: tracks(Type::Subtitle, &|s| subtitle::is_text(s.parameters().id())),
+            ..StreamInfo::default()
         }
     }
+
+    /// With no sound, commands for the output have nowhere to go.
+    fn drop_unheard(&self) {
+        if let Some(rx) = &self.unheard {
+            while rx.try_recv().is_ok() {}
+        }
+    }
+
+    fn next_command(&self, commands: &Receiver<DemuxCmd>) -> Option<DemuxCmd> {
+        // A speaker that threw its buffer away on pause: carry on from where it paused.
+        let resume = self.shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()).take();
+        match resume {
+            Some(t) if !self.live => Some(DemuxCmd::Seek(t)),
+            _ => commands.try_recv().ok(),
+        }
+    }
+
+    fn obey(&mut self, command: DemuxCmd) {
+        match command {
+            DemuxCmd::Seek(t) => {
+                // A track's cues come again from where it's read; a file's stay.
+                if self.seek(t) && self.subtitles.is_some() {
+                    self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                }
+            }
+            DemuxCmd::AudioTrack(i) => self.switch_audio(i),
+            DemuxCmd::Subtitles(track) => self.show_subtitles(track),
+        }
+    }
+
+    /// Go to `t` seconds in; false when the stream can't.
+    fn seek(&mut self, t: f64) -> bool {
+        let done = seek(&mut self.input, t, self.shared, [&self.video_tx, &self.audio_tx]);
+        if done {
+            self.ended = false;
+        }
+        done
+    }
+
+    fn switch_audio(&mut self, i: usize) {
+        let Some(tx) = &self.audio_tx else { return };
+        let Some(stream) = self.input.stream(i).filter(|s| s.parameters().medium() == Type::Audio) else { return };
+        match audio_decoder(&stream) {
+            Ok(d) => {
+                let _ = tx.send(Packet::Decoder(d, stream.time_base()));
+                if let Some(old) = self.audio_index {
+                    set_discard(&mut self.input, old, true);
+                }
+                set_discard(&mut self.input, i, false);
+                self.audio_index = Some(i);
+                let mut info = self.shared.info.lock().unwrap_or_else(|e| e.into_inner());
+                info.audio_track = info.audio_tracks.iter().position(|t| t.stream == i);
+            }
+            Err(e) => log_warn!("audio track {i}: {e}"),
+        }
+    }
+
+    fn show_subtitles(&mut self, track: Option<usize>) {
+        if let Some((old, ..)) = self.subtitles.take() {
+            set_discard(&mut self.input, old, true);
+            self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        }
+        if let Some((i, stream)) = track.and_then(|i| Some((i, self.input.stream(i)?))) {
+            match ffmpeg::codec::Context::from_parameters(stream.parameters()).and_then(|c| c.decoder().subtitle()) {
+                Ok(d) => {
+                    let tb = stream.time_base();
+                    set_discard(&mut self.input, i, false);
+                    self.subtitles = Some((i, d, tb));
+                    // What's been read ahead went by without its subtitles: read it
+                    // again from what's playing.
+                    if !self.live
+                        && let Some(t) = self.shared.clock.now()
+                    {
+                        self.seek(t);
+                    }
+                }
+                Err(e) => log_warn!("subtitle track {i}: {e}"),
+            }
+        }
+        let shown = self.subtitles.as_ref().map(|(i, ..)| *i);
+        let mut info = self.shared.info.lock().unwrap_or_else(|e| e.into_inner());
+        info.subtitle_track = shown.and_then(|i| info.subtitle_tracks.iter().position(|t| t.stream == i));
+        (self.shared.repaint)();
+    }
+
+    /// Read a packet and pass it on; false when the decoders are gone.
+    fn read_packet(&mut self) -> Result<bool, String> {
+        let mut packet = ffmpeg::Packet::empty();
+        match packet.read(&mut self.input) {
+            Ok(()) => Ok(self.pass_on(packet)),
+            Err(ffmpeg::Error::Eof) => {
+                self.end();
+                Ok(true)
+            }
+            Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => Ok(true),
+            Err(_) if self.shared.stopped() => Ok(false),
+            Err(e) => Err(describe(&e)),
+        }
+    }
+
+    /// Subtitles become cues here; sound and picture go to their threads, blocking
+    /// while a queue is full: that's how the stream is paced. False when a decoder
+    /// is gone.
+    fn pass_on(&mut self, packet: ffmpeg::Packet) -> bool {
+        let index = packet.stream();
+        if let Some((i, decoder, tb)) = &mut self.subtitles
+            && *i == index
+        {
+            let mut sub = ffmpeg::Subtitle::new();
+            if let (Some(pts), Ok(true)) = (packet.pts(), decoder.decode(&packet, &mut sub)) {
+                let seconds = |t: i64| t as f64 * f64::from(*tb);
+                let duration = (packet.duration() > 0).then(|| seconds(packet.duration()));
+                let mut cues = self.shared.cues.lock().unwrap_or_else(|e| e.into_inner());
+                for cue in subtitle::cues(&sub, seconds(pts), duration) {
+                    cues.add(cue);
+                }
+            }
+            return true;
+        }
+        let target = if Some(index) == self.video_index {
+            &self.video_tx
+        } else if Some(index) == self.audio_index {
+            &self.audio_tx
+        } else {
+            return true;
+        };
+        let epoch = self.shared.epoch.load(Ordering::Relaxed);
+        target.as_ref().is_none_or(|tx| tx.send(Packet::Data(packet, epoch)).is_ok())
+    }
+
+    /// The decoding threads play out what's queued; the last one to get to the end
+    /// marks the stream ended.
+    fn end(&mut self) {
+        let consumers: Vec<_> = [&self.video_tx, &self.audio_tx].into_iter().flatten().collect();
+        self.shared.finishing.store(consumers.len() as u8, Ordering::Release);
+        let epoch = self.shared.epoch.load(Ordering::Relaxed);
+        for tx in consumers {
+            let _ = tx.send(Packet::End(epoch));
+        }
+        self.ended = true;
+    }
+}
+
+fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    std::thread::Builder::new().name(name.into()).spawn(f).map(drop).map_err(|e| e.to_string())
 }
 
 /// Go to `t` seconds in and drop what the decoders have queued; false when the

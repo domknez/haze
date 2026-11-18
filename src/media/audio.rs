@@ -37,6 +37,17 @@ struct Feeder {
     _awake: crate::awake::Awake,
 }
 
+/// Turns the stream's sound into what the outputs take.
+struct Sound {
+    decoder: ffmpeg::decoder::Audio,
+    time_base: ffmpeg::Rational,
+    /// The converter, and the format it was made for.
+    resampler: Option<(ffmpeg::software::resampling::Context, (Sample, u64, u32))>,
+    frame: ffmpeg::frame::Audio,
+    converted: ffmpeg::frame::Audio,
+    samples: Vec<i16>,
+}
+
 pub fn run(
     shared: Arc<Shared>,
     decoder: ffmpeg::decoder::Audio,
@@ -55,14 +66,7 @@ pub fn run(
         paused: false,
         _awake: crate::awake::Awake::begin(),
     };
-    let mut decoder = decoder;
-    let mut time_base = time_base;
-    let mut resampler: Option<(ffmpeg::software::resampling::Context, (Sample, u64, u32))> = None;
-    let mut frame = ffmpeg::frame::Audio::empty();
-    let mut converted = ffmpeg::frame::Audio::empty();
-    let mut samples: Vec<i16> = Vec::new();
-    let mut ending = false;
-
+    let mut sound = Sound::new(decoder, time_base);
     while !feeder.shared.stopped() {
         feeder.handle_commands();
         if feeder.hold() {
@@ -74,47 +78,53 @@ pub fn run(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match packet {
-            Packet::Data(_, epoch) | Packet::End(epoch) if epoch != feeder.shared.epoch.load(Ordering::Relaxed) => continue,
+            Packet::Data(_, epoch) | Packet::End(epoch) if epoch != feeder.shared.epoch.load(Ordering::Relaxed) => {}
             Packet::Data(p, _) => {
-                if decoder.send_packet(&p).is_err() {
-                    continue;
+                if sound.decoder.send_packet(&p).is_ok() {
+                    sound.play_out(&mut feeder);
                 }
             }
             Packet::Flush => {
-                decoder.flush();
+                sound.decoder.flush();
                 feeder.sink.flush();
-                continue;
             }
-            Packet::Decoder(d, tb) => {
-                (decoder, time_base) = (d, tb);
-                resampler = None;
-                continue;
-            }
+            Packet::Decoder(d, tb) => sound = Sound::new(d, tb),
             Packet::End(_) => {
-                let _ = decoder.send_eof();
-                ending = true;
+                let _ = sound.decoder.send_eof();
+                sound.play_out(&mut feeder);
+                feeder.drain();
+                feeder.shared.finished();
             }
         }
-        while decoder.receive_frame(&mut frame).is_ok() {
-            let start = frame.timestamp().or(frame.pts()).map(|t| t as f64 * f64::from(time_base));
-            let key = (frame.format(), layout_key(&frame), frame.rate());
-            if resampler.as_ref().is_none_or(|(_, k)| *k != key) {
-                resampler = make_resampler(&frame).map(|r| (r, key));
+    }
+}
+
+impl Sound {
+    fn new(decoder: ffmpeg::decoder::Audio, time_base: ffmpeg::Rational) -> Self {
+        let empty = ffmpeg::frame::Audio::empty;
+        Sound { decoder, time_base, resampler: None, frame: empty(), converted: empty(), samples: Vec::new() }
+    }
+
+    /// Hand everything decoded so far to the output.
+    fn play_out(&mut self, feeder: &mut Feeder) {
+        while self.decoder.receive_frame(&mut self.frame).is_ok() {
+            let frame = &self.frame;
+            let start = frame.timestamp().or(frame.pts()).map(|t| t as f64 * f64::from(self.time_base));
+            let key = (frame.format(), layout_key(frame), frame.rate());
+            if self.resampler.as_ref().is_none_or(|(_, k)| *k != key) {
+                self.resampler = make_resampler(frame).map(|r| (r, key));
             }
-            let Some((r, _)) = &mut resampler else { continue };
-            let Some(held) = convert(r, &frame, &mut converted, &mut samples) else { continue };
+            let Some((r, _)) = &mut self.resampler else { continue };
+            let Some(held) = convert(r, frame, &mut self.converted, &mut self.samples) else { continue };
             // What comes out is older than the frame that went in by what the
             // converter still holds.
-            let start = start
-                .map(|t| t + frame.samples() as f64 / f64::from(frame.rate().max(1)) - (held + samples.len() / 2) as f64 / f64::from(RATE));
-            feeder.write(&samples, start);
+            let start = start.map(|t| {
+                t + frame.samples() as f64 / f64::from(frame.rate().max(1)) - (held + self.samples.len() / 2) as f64 / f64::from(RATE)
+            });
+            feeder.write(&self.samples, start);
             if feeder.shared.stopped() {
                 break;
             }
-        }
-        if std::mem::take(&mut ending) {
-            feeder.drain();
-            feeder.shared.finished();
         }
     }
 }
