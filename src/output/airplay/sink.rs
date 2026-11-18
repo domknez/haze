@@ -26,8 +26,6 @@ const RUNTIME_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 const INFO_TIMEOUT: Duration = Duration::from_millis(1500);
 /// TEARDOWN is a courtesy: never wait long for it.
 const TEARDOWN_TIMEOUT: Duration = Duration::from_millis(500);
-/// How long to wait for the audio thread to park or drain.
-const HANDOFF_TIMEOUT: Duration = Duration::from_millis(200);
 
 pub struct AirPlaySink {
     /// AirPlay 2 reverse event channel; held open for the session.
@@ -65,7 +63,7 @@ impl Threads {
 
 impl Drop for Threads {
     fn drop(&mut self) {
-        self.shared.running.store(false, Ordering::Release);
+        self.shared.end();
         for t in self.handles.drain(..) {
             let _ = t.join();
         }
@@ -206,18 +204,16 @@ impl Session {
             self.shared.seq.load(Ordering::Acquire),
             self.shared.rtptime.load(Ordering::Acquire)
         );
-        self.shared.restart.store(true, Ordering::Release);
-        self.shared.playing.store(true, Ordering::Release);
+        self.shared.restart();
     }
 
     /// Stop sending, have the receiver drop its buffer, throw away what is queued
     /// here, then carry on if it was playing. The sink takes no new audio until this
     /// is done (see [`Queue::flushing`]), so none of it is lost.
     fn flush(&mut self) {
-        let was_playing = self.shared.playing.load(Ordering::Acquire);
+        let was_playing = self.shared.playing();
         self.halt();
-        self.shared.drain.store(true, Ordering::Release);
-        wait_until(|| !self.shared.drain.load(Ordering::Acquire));
+        self.shared.drain();
         if was_playing {
             self.resume();
         }
@@ -238,7 +234,7 @@ impl Session {
 
     /// Say goodbye, only over a working connection and briefly.
     fn teardown(&mut self) {
-        if !self.shared.broken.load(Ordering::Acquire) {
+        if !self.shared.broken() {
             self.rtsp.set_reply_timeout(TEARDOWN_TIMEOUT);
             let _ = self.rtsp.request("TEARDOWN", None, &[], None);
         }
@@ -246,8 +242,7 @@ impl Session {
 
     /// Stop the audio thread and drop the receiver's buffer.
     fn halt(&mut self) {
-        self.shared.playing.store(false, Ordering::Release);
-        wait_until(|| self.shared.idle.load(Ordering::Acquire));
+        self.shared.park();
         if self.moved() {
             return;
         }
@@ -273,7 +268,7 @@ impl Session {
         if now == self.local_ip {
             return false;
         }
-        if !self.shared.broken.swap(true, Ordering::AcqRel) {
+        if self.shared.lose() {
             log_warn!("airplay: {} is now reached from {now}, not {}; reconnecting", self.name, self.local_ip);
         }
         true
@@ -282,7 +277,7 @@ impl Session {
     /// A failed control request means the connection is gone.
     fn check<T>(&self, result: Result<T, String>) {
         if let Err(e) = result
-            && !self.shared.broken.swap(true, Ordering::AcqRel)
+            && self.shared.lose()
         {
             log_warn!("airplay control failed, session lost: {e}");
         }
@@ -308,13 +303,6 @@ fn route_from(remote: IpAddr) -> Option<IpAddr> {
     let probe = UdpSocket::bind(SocketAddr::new(any, 0)).ok()?;
     probe.connect(SocketAddr::new(remote, 9)).ok()?;
     Some(probe.local_addr().ok()?.ip())
-}
-
-fn wait_until(done: impl Fn() -> bool) {
-    let deadline = Instant::now() + HANDOFF_TIMEOUT;
-    while !done() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
 }
 
 impl Sink for AirPlaySink {
@@ -363,13 +351,13 @@ impl Sink for AirPlaySink {
     }
 
     fn healthy(&self) -> bool {
-        !self.shared.broken.load(Ordering::Acquire)
+        !self.shared.broken()
     }
 }
 
 impl Drop for AirPlaySink {
     fn drop(&mut self) {
-        self.shared.playing.store(false, Ordering::Release);
+        self.shared.stop_sending();
         // The worker drops what is still queued, says goodbye (if the connection
         // works) and ends. A lost session's request in flight is cut short rather
         // than left to time out.

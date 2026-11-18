@@ -12,18 +12,24 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// State shared between the sink (control) and its threads.
+///
+/// The control worker and the audio thread hand over through it: the worker
+/// [parks](Shared::park) the audio thread before a FLUSH and [restarts](Shared::restart)
+/// it after, and has it [drain](Shared::drain) what's queued; the audio thread
+/// answers each in [`audio_loop`].
 pub struct Shared {
-    pub running: AtomicBool,
-    pub playing: AtomicBool,
+    running: AtomicBool,
+    /// The audio thread should send.
+    playing: AtomicBool,
     /// Re-anchor the clock and mark the next packet as a stream start.
-    pub restart: AtomicBool,
+    restart: AtomicBool,
     /// Discard buffered audio.
-    pub drain: AtomicBool,
+    drain: AtomicBool,
     /// The audio thread is parked (not sending).
-    pub idle: AtomicBool,
+    idle: AtomicBool,
     /// The session is unusable (the network path to the receiver went away, e.g.
     /// the local address vanished): the player should reconnect.
-    pub broken: AtomicBool,
+    broken: AtomicBool,
     /// Next RTP sequence number / timestamp.
     pub seq: AtomicU16,
     pub rtptime: AtomicU32,
@@ -82,12 +88,74 @@ impl Shared {
         }
     }
 
+    /// Whether the session's threads should keep going.
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+
+    /// End the session's threads.
+    pub fn end(&self) {
+        self.running.store(false, Ordering::Release);
+    }
+
+    pub fn playing(&self) -> bool {
+        self.playing.load(Ordering::Acquire)
+    }
+
+    /// Have the audio thread stop sending, without waiting for it.
+    pub fn stop_sending(&self) {
+        self.playing.store(false, Ordering::Release);
+    }
+
+    /// Have the audio thread stop sending, and wait until it has.
+    pub fn park(&self) {
+        self.stop_sending();
+        wait_for("park", || self.idle.load(Ordering::Acquire));
+    }
+
+    /// Have the audio thread send again, as a new stream start (clock re-anchored).
+    pub fn restart(&self) {
+        self.restart.store(true, Ordering::Release);
+        self.playing.store(true, Ordering::Release);
+    }
+
+    /// Have the audio thread throw away what's queued, and wait until it has.
+    pub fn drain(&self) {
+        self.drain.store(true, Ordering::Release);
+        wait_for("drain", || !self.drain.load(Ordering::Acquire));
+    }
+
+    pub fn broken(&self) -> bool {
+        self.broken.load(Ordering::Acquire)
+    }
+
+    /// Mark the session lost; true the first time, so it's logged once.
+    pub fn lose(&self) -> bool {
+        !self.broken.swap(true, Ordering::AcqRel)
+    }
+
     fn remember(&self, seq: u16, packet: Vec<u8>) {
         let mut h = self.history.locked();
         if h.len() == HISTORY {
             h.pop_front();
         }
         h.push_back((seq, packet));
+    }
+}
+
+/// How long the control worker waits for the audio thread to park or drain. It
+/// answers within a few milliseconds; if it doesn't, the worker carries on anyway.
+const HANDOFF_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Wait (briefly) until `done`; logged when it doesn't come.
+fn wait_for(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + HANDOFF_TIMEOUT;
+    while !done() {
+        if Instant::now() >= deadline {
+            log_warn!("airplay: the audio thread didn't {what} in time; carrying on");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -100,7 +168,7 @@ pub fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
 /// Answer the receiver's NTP timing requests.
 pub fn timing_loop(sock: UdpSocket, sh: &Shared) {
     let mut buf = [0u8; 128];
-    while sh.running.load(Ordering::Relaxed) {
+    while sh.running() {
         let Ok((n, from)) = sock.recv_from(&mut buf) else { continue };
         if let Some(reply) = packets::timing_reply(&buf[..n]) {
             sh.stats.timing_requests.fetch_add(1, Ordering::Relaxed);
@@ -112,7 +180,7 @@ pub fn timing_loop(sock: UdpSocket, sh: &Shared) {
 /// Resend packets the receiver reports missing.
 pub fn control_loop(sock: UdpSocket, dst: SocketAddr, sh: &Shared) {
     let mut buf = [0u8; 64];
-    while sh.running.load(Ordering::Relaxed) {
+    while sh.running() {
         let Ok((n, _)) = sock.recv_from(&mut buf) else { continue };
         let Some((first, count)) = packets::retransmit_request(&buf[..n]) else { continue };
         sh.stats.requested.fetch_add(count as u64, Ordering::Relaxed);
@@ -152,14 +220,15 @@ pub fn audio_loop(out: AudioOut, mut consumer: rtrb::Consumer<i16>, sh: &Shared)
     let mut next_sync: u64 = 0;
     let mut first = true;
     let mut last_stats = Instant::now();
-    while sh.running.load(Ordering::Relaxed) {
-        if sh.drain.swap(false, Ordering::AcqRel) {
+    while sh.running() {
+        if sh.drain.load(Ordering::Acquire) {
             let n = consumer.slots();
             if let Ok(c) = consumer.read_chunk(n) {
                 c.commit_all();
             }
+            sh.drain.store(false, Ordering::Release);
         }
-        if !sh.playing.load(Ordering::Acquire) {
+        if !sh.playing() {
             sh.idle.store(true, Ordering::Release);
             std::thread::sleep(Duration::from_millis(5));
             continue;
@@ -208,7 +277,7 @@ pub fn audio_loop(out: AudioOut, mut consumer: rtrb::Consumer<i16>, sh: &Shared)
         let rtptime = sh.rtptime.load(Ordering::Acquire);
         let packet = packets::audio_packet(seq, rtptime, ssrc, first, &frame, out.cipher.as_ref());
         if let Err(e) = out.socket.send(&packet)
-            && !sh.broken.swap(true, Ordering::AcqRel)
+            && sh.lose()
         {
             log_warn!("airplay send failed, session lost: {e}");
         }
