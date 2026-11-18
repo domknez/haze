@@ -1,6 +1,6 @@
 //! The channel list down the left: search, the group, and what's on each channel.
 
-use crate::iptv::model::Shelf;
+use crate::iptv::model::{Channel, Programme, Shelf};
 use crate::iptv::time;
 use crate::ui::app::{Act, App, Tab};
 use crate::ui::icons::{self, Icon};
@@ -355,40 +355,16 @@ impl App {
         if on || (resp.hovered() && !lifted) {
             ui.painter().rect_filled(rect, CornerRadius::same(11), if on { p.hl_strong } else { p.hl });
         }
-        let mut x = rect.left() + 6.0;
-        let number = channel.number.map(|n| n.to_string()).unwrap_or_default();
-        ui.painter().text(pos2(x + 24.0, rect.center().y), Align2::RIGHT_CENTER, number, typography::meta(), p.faint);
-        x += 32.0;
-        let logo_rect = Rect::from_min_size(pos2(x, rect.center().y - metrics::LOGO / 2.0), vec2(metrics::LOGO, metrics::LOGO));
-        let logo = channel.logo.clone();
-        let name = channel.name.clone();
         let key = channel.key.clone();
         let favorite = self.marks.is_favorite(&self.source_id(), &key);
         let now = self.now_on(channel).cloned();
-        let tex = logo.as_deref().and_then(|u| self.logos.get(u));
-        widgets::logo_tile(ui.painter(), logo_rect, &name, tex.map(|t| t.0), tex.map(|t| t.1));
-        x += metrics::LOGO + 11.0;
-        let text_w = rect.right() - x - 34.0;
-        let title = widgets::ellipsize(ui, &name, typography::item(), p.text, text_w);
-        let has_sub = now.is_some();
-        let ty = if has_sub { rect.center().y - title.size().y + 1.0 } else { rect.center().y - title.size().y / 2.0 };
-        ui.painter().galley(pos2(x, ty), title, p.text);
-        if let Some(prog) = &now {
-            let sub = widgets::ellipsize(ui, &prog.title, typography::secondary(), p.dim, text_w);
-            ui.painter().galley(pos2(x, rect.center().y + 2.0), sub, p.dim);
-        }
-        let right = pos2(rect.right() - 16.0, rect.center().y);
+        let tex = channel.logo.as_deref().and_then(|u| self.logos.get(u));
+        paint_channel(ui, rect, channel, tex, now.as_ref());
+        let badge = pos2(rect.right() - 16.0, rect.center().y);
         if favorite {
-            icons::paint(ui.painter(), Rect::from_center_size(right, vec2(13.0, 13.0)), Icon::Star, p.accent);
+            icons::paint(ui.painter(), Rect::from_center_size(badge, vec2(13.0, 13.0)), Icon::Star, p.accent);
         } else if let Some(prog) = &now {
-            // How far the programme is: a ring.
-            let frac = prog.progress(time::now());
-            ui.painter().circle_stroke(right, 8.0, Stroke::new(2.5, p.hl_strong));
-            let pts: Vec<_> = (0..=24)
-                .map(|i| -std::f32::consts::FRAC_PI_2 + frac * std::f32::consts::TAU * i as f32 / 24.0)
-                .map(|a| right + vec2(a.cos(), a.sin()) * 8.0)
-                .collect();
-            ui.painter().add(egui::Shape::line(pts, Stroke::new(2.5, p.accent)));
+            progress_ring(ui.painter(), badge, prog.progress(time::now()));
         }
         ui.set_opacity(opacity);
         let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -396,44 +372,9 @@ impl App {
             acts.push(Act::PlayChannel(key.clone()));
         }
         if place.is_some() {
-            resp.dnd_set_drag_payload(Lifted(key.clone()));
-            // Dropped on the upper half of the row: before it; on the lower: after.
-            let after = ui.ctx().pointer_latest_pos().is_some_and(|ptr| ptr.y > rect.center().y);
-            if let Some(held) = resp.dnd_hover_payload::<Lifted>()
-                && held.0 != key
-            {
-                let y = if after { rect.bottom() } else { rect.top() };
-                ui.painter().hline(rect.x_range().shrink(6.0), y, Stroke::new(2.0, p.accent));
-            }
-            if let Some(held) = resp.dnd_release_payload::<Lifted>()
-                && held.0 != key
-            {
-                acts.push(Act::MoveFavorite(held.0.clone(), key.clone(), after));
-            }
+            favorite_drop(ui, &resp, rect, &key, acts);
         }
-        resp.context_menu(|ui| {
-            if let Some(place) = place {
-                let moves = [
-                    ("Move to the top", place.prev.as_ref().map(|_| (&place.first, false))),
-                    ("Move up", place.prev.as_ref().map(|k| (k, false))),
-                    ("Move down", place.next.as_ref().map(|k| (k, true))),
-                    ("Move to the bottom", place.next.as_ref().map(|_| (&place.last, true))),
-                ];
-                for (label, to) in moves {
-                    if let Some((target, after)) = to
-                        && ui.button(label).clicked()
-                    {
-                        acts.push(Act::MoveFavorite(key.clone(), target.clone(), after));
-                        ui.close();
-                    }
-                }
-                ui.separator();
-            }
-            if ui.button(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
-                acts.push(Act::ToggleFavorite(key.clone()));
-                ui.close();
-            }
-        });
+        resp.context_menu(|ui| channel_menu(ui, &key, favorite, place, acts));
     }
 
     fn movie_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
@@ -619,4 +560,78 @@ pub(super) fn group_row(ui: &mut egui::Ui, title: &str, count: usize, on: bool, 
     let count = if hidden { format!("hidden · {count}") } else { count.to_string() };
     ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count, typography::meta(), p.faint);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A channel's number, logo, name and what's on now, across `rect`.
+fn paint_channel(ui: &egui::Ui, rect: Rect, channel: &Channel, logo: Option<(egui::TextureId, egui::Vec2)>, now: Option<&Programme>) {
+    let p = colors();
+    let mut x = rect.left() + 6.0;
+    let number = channel.number.map(|n| n.to_string()).unwrap_or_default();
+    ui.painter().text(pos2(x + 24.0, rect.center().y), Align2::RIGHT_CENTER, number, typography::meta(), p.faint);
+    x += 32.0;
+    let logo_rect = Rect::from_min_size(pos2(x, rect.center().y - metrics::LOGO / 2.0), vec2(metrics::LOGO, metrics::LOGO));
+    widgets::logo_tile(ui.painter(), logo_rect, &channel.name, logo.map(|t| t.0), logo.map(|t| t.1));
+    x += metrics::LOGO + 11.0;
+    let text_w = rect.right() - x - 34.0;
+    let title = widgets::ellipsize(ui, &channel.name, typography::item(), p.text, text_w);
+    let ty = if now.is_some() { rect.center().y - title.size().y + 1.0 } else { rect.center().y - title.size().y / 2.0 };
+    ui.painter().galley(pos2(x, ty), title, p.text);
+    if let Some(prog) = now {
+        let sub = widgets::ellipsize(ui, &prog.title, typography::secondary(), p.dim, text_w);
+        ui.painter().galley(pos2(x, rect.center().y + 2.0), sub, p.dim);
+    }
+}
+
+/// How far the programme on now is (0 to 1): a ring around `center`.
+fn progress_ring(painter: &egui::Painter, center: egui::Pos2, done: f32) {
+    let p = colors();
+    painter.circle_stroke(center, 8.0, Stroke::new(2.5, p.hl_strong));
+    let pts: Vec<_> = (0..=24)
+        .map(|i| -std::f32::consts::FRAC_PI_2 + done * std::f32::consts::TAU * i as f32 / 24.0)
+        .map(|a| center + vec2(a.cos(), a.sin()) * 8.0)
+        .collect();
+    painter.add(egui::Shape::line(pts, Stroke::new(2.5, p.accent)));
+}
+
+/// A favourite's row as a place to drop another: on its upper half before it, on
+/// its lower half after it, with a line where it would go.
+fn favorite_drop(ui: &egui::Ui, resp: &egui::Response, rect: Rect, key: &str, acts: &mut Vec<Act>) {
+    resp.dnd_set_drag_payload(Lifted(key.to_string()));
+    let after = ui.ctx().pointer_latest_pos().is_some_and(|ptr| ptr.y > rect.center().y);
+    if let Some(held) = resp.dnd_hover_payload::<Lifted>()
+        && held.0 != key
+    {
+        let y = if after { rect.bottom() } else { rect.top() };
+        ui.painter().hline(rect.x_range().shrink(6.0), y, Stroke::new(2.0, colors().accent));
+    }
+    if let Some(held) = resp.dnd_release_payload::<Lifted>()
+        && held.0 != key
+    {
+        acts.push(Act::MoveFavorite(held.0.clone(), key.to_string(), after));
+    }
+}
+
+/// A channel's right-click menu: moving it among the favourites, and (un)marking it.
+fn channel_menu(ui: &mut egui::Ui, key: &str, favorite: bool, place: Option<&Place>, acts: &mut Vec<Act>) {
+    if let Some(place) = place {
+        let moves = [
+            ("Move to the top", place.prev.as_ref().map(|_| (&place.first, false))),
+            ("Move up", place.prev.as_ref().map(|k| (k, false))),
+            ("Move down", place.next.as_ref().map(|k| (k, true))),
+            ("Move to the bottom", place.next.as_ref().map(|_| (&place.last, true))),
+        ];
+        for (label, to) in moves {
+            if let Some((target, after)) = to
+                && ui.button(label).clicked()
+            {
+                acts.push(Act::MoveFavorite(key.to_string(), target.clone(), after));
+                ui.close();
+            }
+        }
+        ui.separator();
+    }
+    if ui.button(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
+        acts.push(Act::ToggleFavorite(key.to_string()));
+        ui.close();
+    }
 }
