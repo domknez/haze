@@ -187,6 +187,30 @@ fn read_playlist(location: &str, epg: Option<&str>, shelves: &BTreeMap<String, S
     Ok(catalog)
 }
 
+/// A source that answered, ready to keep: what it offers, and the password to store
+/// with it (an Xtream login's, or one that came out of its playlist link).
+pub struct Checked {
+    pub source: Source,
+    pub catalog: Catalog,
+    pub secret: Option<String>,
+}
+
+/// Load what `source` offers, signing in with `password` when it's an Xtream login.
+/// Nothing is stored: the caller keeps the source (and its secret) only once it's
+/// wanted.
+pub fn check(source: Source, password: String) -> Result<Checked, String> {
+    match &source.kind {
+        Kind::Xtream { server, user } => {
+            let catalog = xtream::Login::new(server, user, &password).catalog().map_err(|e| e.to_string())?;
+            Ok(Checked { source, catalog, secret: Some(password) })
+        }
+        Kind::Playlist { .. } => Ok(match fetch_upgrading(&source)? {
+            (catalog, Some((login, secret))) => Checked { source: login, catalog, secret: Some(secret) },
+            (catalog, None) => Checked { source, catalog, secret: None },
+        }),
+    }
+}
+
 /// A source signed in to the Xtream panel its playlist link comes from, with the
 /// login's password: keep both in place of the link.
 pub type Upgrade = (Source, String);

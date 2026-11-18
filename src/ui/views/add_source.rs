@@ -1,9 +1,7 @@
 //! Adding or editing a source: a playlist link, a playlist file, or an Xtream Codes
 //! login. The source is checked (its playlist loaded) before it is saved.
 
-use crate::credentials;
-use crate::iptv::model::Catalog;
-use crate::library::{self, Kind, Source};
+use crate::library::{self, Checked, Kind, Source};
 use crate::ui::icons::Icon;
 use crate::ui::load::Load;
 use crate::ui::style::{colors, typography};
@@ -31,7 +29,7 @@ pub struct SourceForm {
     server: String,
     user: String,
     password: String,
-    check: Load<(Source, Catalog)>,
+    check: Load<Checked>,
 }
 
 const WIDTH: f32 = 520.0;
@@ -82,14 +80,14 @@ impl SourceForm {
                 f.mode = Mode::Xtream;
                 f.server = server.clone();
                 f.user = user.clone();
-                f.password = credentials::load(&source.id).unwrap_or_default();
+                f.password = crate::credentials::load(&source.id).unwrap_or_default();
             }
         }
         f
     }
 
     /// The checked source and its catalog, once the check succeeded.
-    pub fn poll(&mut self) -> Option<(Source, Catalog)> {
+    pub fn poll(&mut self) -> Option<Checked> {
         self.check.poll();
         if !matches!(self.check, Load::Ready(_)) {
             return None;
@@ -123,20 +121,7 @@ impl SourceForm {
         let id = self.editing.clone().unwrap_or_else(library::new_id);
         let source = Source { id, name, kind, shelves: self.shelves.clone(), hidden: self.hidden.clone() };
         let password = self.password.clone();
-        self.check = Load::start(ctx, move || match &source.kind {
-            Kind::Xtream { server, user } => {
-                let catalog = crate::iptv::xtream::Login::new(server, user, &password).catalog().map_err(|e| e.to_string())?;
-                credentials::save(&source.id, &password);
-                Ok((source, catalog))
-            }
-            Kind::Playlist { .. } => match library::fetch_upgrading(&source)? {
-                (catalog, Some((login, password))) => {
-                    credentials::save(&login.id, &password);
-                    Ok((login, catalog))
-                }
-                (catalog, None) => Ok((source, catalog)),
-            },
-        });
+        self.check = Load::start(ctx, move || library::check(source, password));
     }
 
     /// Draws the dialog; Some(false) when it's dismissed.

@@ -2,8 +2,8 @@
 //! action to the part of the app it concerns.
 
 use super::{App, Playing, Tab};
-use crate::iptv::model::{Catalog, Programme, Shelf};
-use crate::library::Source;
+use crate::iptv::model::{Programme, Shelf};
+use crate::library::Checked;
 use crate::output::Output;
 use crate::settings::Appearance;
 use crate::ui::views::add_source::SourceForm;
@@ -72,7 +72,7 @@ pub enum Act {
     EditSource(usize),
     RemoveSource(usize),
     /// A source checked and ready to save, with what it offers.
-    SourceSaved(Source, Box<Catalog>),
+    SourceSaved(Box<Checked>),
     AudioTrack(usize),
     /// Show the subtitle track at this stream index, or none.
     SubtitleTrack(Option<usize>),
@@ -120,7 +120,7 @@ impl App {
                 }
             }
             Act::RemoveSource(i) => self.remove_source(ctx, i),
-            Act::SourceSaved(source, catalog) => self.save_source(ctx, source, *catalog),
+            Act::SourceSaved(checked) => self.save_source(ctx, *checked),
             Act::Popup(p) => self.toggle_popup(p),
             Act::ToggleRail => self.panels.rail_open = !self.panels.rail_open,
             Act::ToggleGroups => self.panels.groups_open = !self.panels.groups_open,

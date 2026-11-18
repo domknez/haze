@@ -3,7 +3,7 @@
 
 use super::{Act, App, Playing, Tab};
 use crate::iptv::model::{Catalog, Shelf};
-use crate::library::{self, Source};
+use crate::library::{self, Checked};
 use crate::ui::load::Load;
 use crate::ui::views::pin::Purpose as PinPurpose;
 use eframe::egui;
@@ -101,15 +101,19 @@ impl App {
             self.show_toast("The guide couldn't be loaded");
         }
         if let Some(form) = &mut self.form
-            && let Some((source, catalog)) = form.poll()
+            && let Some(checked) = form.poll()
         {
             self.form = None;
-            self.apply(ctx, Act::SourceSaved(source, Box::new(catalog)));
+            self.apply(ctx, Act::SourceSaved(Box::new(checked)));
         }
     }
 
     /// A source checked and ready: keep it (in place of the one edited) and use it.
-    pub(super) fn save_source(&mut self, ctx: &egui::Context, source: Source, catalog: Catalog) {
+    pub(super) fn save_source(&mut self, ctx: &egui::Context, checked: Checked) {
+        let Checked { source, catalog, secret } = checked;
+        if let Some(secret) = secret {
+            crate::credentials::save(&source.id, &secret);
+        }
         let i = match self.sources.iter().position(|s| s.id == source.id) {
             Some(i) => {
                 self.sources[i] = source.clone();
