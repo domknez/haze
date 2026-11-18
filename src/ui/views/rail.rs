@@ -152,8 +152,9 @@ impl App {
         if resp.has_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
             && let Some(&first) = self.browse.list.first()
+            && let Some(act) = self.play_act(first)
         {
-            acts.push(self.play_act(first));
+            acts.push(act);
         }
         ui.add_space(4.0);
         if let Some(i) = self.browse.open_series {
@@ -236,14 +237,15 @@ impl App {
         }
     }
 
-    pub fn play_act(&self, index: usize) -> Act {
-        let Some(c) = self.catalog.ready() else { return Act::Toast(String::new()) };
-        match self.browse.tab {
-            Tab::Movies => Act::PlayMovie(c.movies[index].key.clone()),
+    /// What picking entry `index` of the list does: play it, or open the series.
+    fn play_act(&self, index: usize) -> Option<Act> {
+        let c = self.catalog.ready()?;
+        Some(match self.browse.tab {
+            Tab::Movies => Act::PlayMovie(c.movies.get(index)?.key.clone()),
             Tab::Series if self.browse.open_series.is_some() => Act::PlayEpisode(index),
             Tab::Series => Act::OpenSeries(Some(index)),
-            _ => Act::PlayChannel(c.channels[index].key.clone()),
-        }
+            _ => Act::PlayChannel(c.channels.get(index)?.key.clone()),
+        })
     }
 
     fn rail_list(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {

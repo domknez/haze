@@ -33,8 +33,8 @@ pub fn open(output: &Output, volume: f32) -> Result<Box<dyn Sink>, String> {
 }
 
 pub trait Sink {
-    /// Queue interleaved stereo samples. Non-blocking: returns how many samples were
-    /// accepted (either all or none).
+    /// Queue interleaved stereo samples: returns how many were accepted, all or none
+    /// (none while the output is full, so the caller waits and tries again).
     fn write(&mut self, samples: &[i16]) -> usize;
     /// Frames accepted but not yet handed to the device/network.
     fn pending_frames(&self) -> usize;

@@ -77,7 +77,6 @@ pub enum Act {
     /// Show the subtitle track at this stream index, or none.
     SubtitleTrack(Option<usize>),
     Seek(f64),
-    Toast(String),
     AutoUpdate(bool),
     CheckForUpdates,
     /// The top bar's update button: install and restart, or open the download page.
@@ -137,7 +136,6 @@ impl App {
             }
             Act::CheckForUpdates => self.updates.check_now(ctx),
             Act::InstallUpdate => self.install_update(ctx),
-            Act::Toast(t) => self.show_toast(&t),
         }
     }
 

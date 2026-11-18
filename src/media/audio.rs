@@ -111,7 +111,7 @@ impl Sound {
         while self.decoder.receive_frame(&mut self.frame).is_ok() {
             let frame = &self.frame;
             let start = frame.timestamp().or(frame.pts()).map(|t| t as f64 * f64::from(self.time_base));
-            let key = (frame.format(), layout_key(frame), frame.rate());
+            let key = (frame.format(), channel_count(frame), frame.rate());
             if self.resampler.as_ref().is_none_or(|(_, k)| *k != key) {
                 self.resampler = make_resampler(frame).map(|r| (r, key));
             }
@@ -265,8 +265,8 @@ fn convert(
     Some(r.delay().map_or(0, |d| d.output.max(0) as usize))
 }
 
-/// Identifies a channel layout well enough to tell when it changes.
-fn layout_key(frame: &ffmpeg::frame::Audio) -> u64 {
+/// The number of channels: enough to tell when the layout changes.
+fn channel_count(frame: &ffmpeg::frame::Audio) -> u64 {
     u64::from(frame.channels())
 }
 

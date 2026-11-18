@@ -106,7 +106,6 @@ impl Logos {
         }
     }
 
-    /// Texture for `url` if loaded; otherwise starts loading it and returns None.
     /// Texture for `url` and its size if loaded; otherwise starts loading it and
     /// returns None.
     pub fn get(&mut self, url: &str) -> Option<(TextureId, egui::Vec2)> {
