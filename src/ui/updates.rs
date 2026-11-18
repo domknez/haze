@@ -2,6 +2,7 @@
 //! then offer "Restart to update" in the top bar. A staged update that was never
 //! applied installs when haze quits.
 
+use crate::ui::load::Load;
 use crate::update::{self, Release, Restart, Staged};
 use eframe::egui;
 use std::sync::Arc;
@@ -33,7 +34,8 @@ pub struct Updates {
     /// "Check automatically" (setting).
     pub auto: bool,
     pub state: State,
-    checking: Option<Receiver<Result<Option<Release>, String>>>,
+    /// A check under way.
+    check: Load<Option<Release>>,
     /// A check has completed since startup.
     checked: bool,
     next_check: Instant,
@@ -43,14 +45,14 @@ pub struct Updates {
 
 impl Updates {
     pub fn new(auto: bool) -> Self {
-        Self { auto, state: State::UpToDate, checking: None, checked: false, next_check: Instant::now() + FIRST_CHECK, last_error: None }
+        Self { auto, state: State::UpToDate, check: Load::Idle, checked: false, next_check: Instant::now() + FIRST_CHECK, last_error: None }
     }
 
     /// One line for the settings menu.
     pub fn status(&self) -> String {
         let current = update::CURRENT;
         match &self.state {
-            _ if self.checking.is_some() => "Checking…".into(),
+            _ if self.check.is_loading() => "Checking…".into(),
             State::Downloading { release, progress, .. } => {
                 format!("Downloading haze {}… {}%", release.version, progress.load(Ordering::Relaxed) / 10)
             }
@@ -86,16 +88,10 @@ impl Updates {
     /// Start a check now (menu "Check now", or when one is due).
     pub fn check_now(&mut self, ctx: &egui::Context) {
         let busy = matches!(self.state, State::Downloading { .. } | State::Ready(..));
-        if self.checking.is_some() || busy {
+        if self.check.is_loading() || busy {
             return;
         }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let _ = tx.send(update::check());
-            ctx.request_repaint();
-        });
-        self.checking = Some(rx);
+        self.check = Load::start(ctx, update::check);
         self.next_check = Instant::now() + INTERVAL;
     }
 
@@ -107,22 +103,16 @@ impl Updates {
         if self.auto {
             ctx.request_repaint_after(self.next_check.saturating_duration_since(Instant::now()));
         }
-        if let Some(rx) = &self.checking {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.checking = None;
-                    self.checked = true;
-                    match result {
-                        Ok(Some(release)) => self.found(ctx, release),
-                        Ok(None) => self.last_error = None,
-                        Err(e) => {
-                            log_debug!("update check failed: {e}");
-                            self.last_error = Some(e);
-                        }
-                    }
+        if self.check.poll() {
+            self.checked = true;
+            match std::mem::take(&mut self.check) {
+                Load::Ready(Some(release)) => self.found(ctx, release),
+                Load::Ready(None) => self.last_error = None,
+                Load::Failed(e) => {
+                    log_debug!("update check failed: {e}");
+                    self.last_error = Some(e);
                 }
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => self.checking = None,
+                Load::Idle | Load::Loading(_) => {}
             }
         }
         if let State::Downloading { done, release, .. } = &self.state {
