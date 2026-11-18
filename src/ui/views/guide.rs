@@ -48,13 +48,13 @@ impl App {
             ui.add_space(6.0);
             // What it shows: click to pick the favourites or another group.
             let label = match &self.browse.channels.picked {
-                _ if self.guide_favorites => "Favorites".to_string(),
+                _ if self.panels.guide_favorites => "Favorites".to_string(),
                 Some(g) => g.clone(),
                 None => "All channels".into(),
             };
             let text = widgets::ellipsize(ui, &label, typography::small_strong(), p.text, 320.0);
             let (r, pick) = ui.allocate_exact_size(vec2(text.size().x + 40.0, 30.0), Sense::click());
-            let open = self.popup == Some(Popup::GuideChannels);
+            let open = self.panels.popup == Some(Popup::GuideChannels);
             if open || pick.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(9), if open { p.hl_strong } else { p.hl });
             }
@@ -69,7 +69,7 @@ impl App {
                     acts.push(Act::ToggleGuide);
                 }
                 if widgets::pill(ui, None, "Now", false).clicked() {
-                    self.guide_jump = true;
+                    self.panels.guide_jump = true;
                 }
             });
         });
@@ -85,7 +85,7 @@ impl App {
             ui.label(egui::RichText::new(text).font(typography::body()).color(p.dim));
             return;
         };
-        let channels = if self.guide_favorites {
+        let channels = if self.panels.guide_favorites {
             let source = self.source_id();
             let by_key = |k: &str| catalog.channels.iter().position(|c| c.key == k);
             self.marks.favorites(&source).filter_map(by_key).filter(|&i| self.browse.shows(&catalog.channels[i].group)).collect()
@@ -99,7 +99,7 @@ impl App {
         let playing = self.playing_channel().map(|c| c.key.clone());
 
         let mut area = egui::ScrollArea::both().id_salt("guide-grid").auto_shrink([false, false]);
-        if std::mem::take(&mut self.guide_jump) {
+        if std::mem::take(&mut self.panels.guide_jump) {
             let row = playing.as_ref().and_then(|k| channels.iter().position(|&i| &catalog.channels[i].key == k)).unwrap_or(0);
             area = area.scroll_offset(vec2(x_of(now - 1800) - NAMES, (row as f32 - 2.0).max(0.0) * ROW));
         }

@@ -28,11 +28,13 @@ impl App {
                     let w = g.size().x;
                     ui.painter().galley(pos2(r.left(), r.center().y - g.size().y / 2.0), g, p.text);
                     ui.painter().text(pos2(r.left() + w, r.center().y), egui::Align2::LEFT_CENTER, "_", typography::wordmark(), p.accent);
-                    let list = widgets::icon_button(ui, Icon::List, 32.0, if self.rail_open { p.text } else { p.dim }, "Channel list (L)");
+                    let list =
+                        widgets::icon_button(ui, Icon::List, 32.0, if self.panels.rail_open { p.text } else { p.dim }, "Channel list (L)");
                     if list.clicked() {
                         acts.push(Act::ToggleRail);
                     }
-                    let guide = widgets::icon_button(ui, Icon::Guide, 32.0, if self.guide_open { p.text } else { p.dim }, "Guide (G)");
+                    let guide =
+                        widgets::icon_button(ui, Icon::Guide, 32.0, if self.panels.guide_open { p.text } else { p.dim }, "Guide (G)");
                     if guide.clicked() {
                         acts.push(Act::ToggleGuide);
                     }

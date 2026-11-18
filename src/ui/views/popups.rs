@@ -14,12 +14,12 @@ const MENU_WIDTH: f32 = 300.0;
 impl App {
     /// Remember where the button that opens `popup` is.
     pub fn anchor(&self, popup: Popup, rect: Rect) {
-        self.anchors.borrow_mut().insert(popup, rect);
+        self.panels.anchors.borrow_mut().insert(popup, rect);
     }
 
     pub fn popups(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
-        let Some(popup) = self.popup else { return };
-        let Some(anchor) = self.anchors.borrow().get(&popup).copied() else { return };
+        let Some(popup) = self.panels.popup else { return };
+        let Some(anchor) = self.panels.anchors.borrow().get(&popup).copied() else { return };
         // Below the button, kept on screen; above it when the button is low down.
         let below = anchor.center().y < screen.center().y;
         let x = (anchor.right() - MENU_WIDTH).clamp(screen.left() + 8.0, screen.right() - MENU_WIDTH - 8.0);
@@ -269,7 +269,7 @@ impl App {
         }
         let needle = self.browse.group_filter.trim().to_lowercase();
         let favorites = self.marks.favorites(&self.source_id()).count();
-        let picked = (!self.guide_favorites).then(|| self.browse.channels.picked.clone());
+        let picked = (!self.panels.guide_favorites).then(|| self.browse.channels.picked.clone());
         let mut rows: Vec<(Option<Option<String>>, String, usize)> = Vec::new();
         if needle.is_empty() {
             if favorites > 0 {

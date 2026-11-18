@@ -64,7 +64,7 @@ impl App {
         let resp = ui.interact(area, ui.scope_id().with("stage"), Sense::click());
         if resp.double_clicked() {
             acts.push(Act::ToggleFullscreen);
-        } else if resp.clicked() && self.popup.is_some() {
+        } else if resp.clicked() && self.panels.popup.is_some() {
             acts.push(Act::Popup(None));
         }
         let p = colors();
@@ -81,7 +81,7 @@ impl App {
         if let Some(text) = player.subtitles() {
             let aspect = player.frame().1.map_or(16.0 / 9.0, |f| f.aspect);
             let picture = video::fit(area, aspect);
-            let floor = if self.controls_shown { area.bottom() - metrics::BOTTOM - metrics::GAP * 2.0 } else { picture.bottom() };
+            let floor = if self.panels.controls_shown { area.bottom() - metrics::BOTTOM - metrics::GAP * 2.0 } else { picture.bottom() };
             subtitles(ui.painter(), &text, picture, floor.min(picture.bottom()) - picture.height() * 0.04);
         }
         let center = area.center() - vec2(0.0, 30.0);
@@ -134,7 +134,7 @@ impl App {
     fn idle_backdrop(&self, ui: &egui::Ui, area: Rect) {
         let p = colors();
         let painter = ui.painter();
-        let c = area.center() + vec2(if self.rail_open { self.rail_width() / 2.0 } else { 0.0 }, -10.0);
+        let c = area.center() + vec2(if self.panels.rail_open { self.rail_width() / 2.0 } else { 0.0 }, -10.0);
         glow(painter, c, area.width().max(area.height()) * 0.45, p.accent.gamma_multiply(0.16));
         painter.text(c, Align2::CENTER_BOTTOM, "haze_", egui::FontId::new(44.0, typography::extrabold()), p.text);
         let hint = match &self.catalog {

@@ -12,7 +12,7 @@ use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
 impl App {
     /// Whether the column of groups shows beside the channels.
     pub fn shows_groups(&self) -> bool {
-        self.groups_open && matches!(self.browse.tab, Tab::Live | Tab::Movies | Tab::Series) && self.browse.groups().counts.len() > 1
+        self.panels.groups_open && matches!(self.browse.tab, Tab::Live | Tab::Movies | Tab::Series) && self.browse.groups().counts.len() > 1
     }
 
     /// How wide the rail is now.
@@ -145,9 +145,9 @@ impl App {
     fn rail_header(&mut self, ui: &mut egui::Ui, width: f32, acts: &mut Vec<Act>) {
         let p = colors();
         let resp = widgets::search_field(ui, &mut self.browse.search, width);
-        if self.focus_search {
+        if self.panels.focus_search {
             resp.request_focus();
-            self.focus_search = false;
+            self.panels.focus_search = false;
         }
         if resp.has_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
