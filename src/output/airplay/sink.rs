@@ -41,9 +41,33 @@ pub struct AirPlaySink {
     worker: Option<JoinHandle<()>>,
     /// The RTSP connection, to cut a request short when the session is lost.
     rtsp_socket: TcpStream,
-    threads: Vec<JoinHandle<()>>,
+    /// Stopped and waited for when the sink goes.
+    _threads: Threads,
     /// What the receiver reported taking to play audio, in frames.
     output_latency: usize,
+}
+
+/// The session's network threads: told to stop and waited for when this goes,
+/// whether the session got going or failed halfway through setting up.
+struct Threads {
+    shared: Arc<Shared>,
+    handles: Vec<JoinHandle<()>>,
+}
+
+impl Threads {
+    fn spawn(&mut self, name: &str, f: impl FnOnce(&Shared) + Send + 'static) {
+        let sh = self.shared.clone();
+        self.handles.push(transport::spawn(name, move || f(&sh)));
+    }
+}
+
+impl Drop for Threads {
+    fn drop(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
+        for t in self.handles.drain(..) {
+            let _ = t.join();
+        }
+    }
 }
 
 /// The control worker's side of a session: the RTSP connection and what it needs to
@@ -94,26 +118,22 @@ impl AirPlaySink {
         };
         let shared = Arc::new(Shared::new(local.seq, local.rtptime));
         // Receivers sync clocks with us during SETUP, so answer timing requests first.
-        let sh = shared.clone();
-        let mut threads = vec![transport::spawn("airplay-timing", move || transport::timing_loop(timing, &sh))];
+        let mut threads = Threads { shared: shared.clone(), handles: Vec::new() };
+        threads.spawn("airplay-timing", move |sh| transport::timing_loop(timing, sh));
 
         let negotiated = if device.ap2 {
             negotiate::airplay2(&mut rtsp, device, &local, remote_ip)
         } else {
             negotiate::airplay1(&mut rtsp, device, &local, remote_ip)
         };
-        let Negotiated { data_port, control_port, audio_key, events, ptp } = negotiated.map_err(|e| {
-            shared.running.store(false, Ordering::Release);
-            format!("{}: {e}", device.name)
-        })?;
+        let Negotiated { data_port, control_port, audio_key, events, ptp } = negotiated.map_err(|e| format!("{}: {e}", device.name))?;
 
         audio.connect(SocketAddr::new(remote_ip, data_port)).map_err(|e| e.to_string())?;
         let control_dst = SocketAddr::new(remote_ip, control_port);
         // ~1 s of audio between the player and network pacing.
         let (producer, consumer) = rtrb::RingBuffer::new(RATE as usize * 2);
-        let sh = shared.clone();
         let retransmits = control.try_clone().map_err(|e| e.to_string())?;
-        threads.push(transport::spawn("airplay-control", move || transport::control_loop(retransmits, control_dst, &sh)));
+        threads.spawn("airplay-control", move |sh| transport::control_loop(retransmits, control_dst, sh));
         let out = AudioOut {
             socket: audio,
             control,
@@ -121,8 +141,7 @@ impl AirPlaySink {
             cipher: audio_key.map(|k| ChaCha20Poly1305::new(&k.into())),
             timing: ptp.as_ref().map_or(Timing::Ntp, |p| Timing::Ptp { clock_id: p.clock_id() }),
         };
-        let sh = shared.clone();
-        threads.push(transport::spawn("airplay-audio", move || transport::audio_loop(out, consumer, &sh)));
+        threads.spawn("airplay-audio", move |sh| transport::audio_loop(out, consumer, sh));
 
         rtsp.set_reply_timeout(RUNTIME_REPLY_TIMEOUT);
         log_info!(
@@ -137,8 +156,17 @@ impl AirPlaySink {
         let session = Session { rtsp, shared: shared.clone(), volume_sent: None, name: device.name.clone(), local_ip, remote_ip };
         let (control, worker, rtsp_socket) = start_control(session)?;
         let output_latency = output_latency.map_or(0, |l| (l.as_secs_f64() * f64::from(RATE)) as usize);
-        let mut sink =
-            Self { _events: events, _ptp: ptp, shared, producer, control, worker: Some(worker), rtsp_socket, threads, output_latency };
+        let mut sink = Self {
+            _events: events,
+            _ptp: ptp,
+            shared,
+            producer,
+            control,
+            worker: Some(worker),
+            rtsp_socket,
+            _threads: threads,
+            output_latency,
+        };
         sink.set_volume(volume);
         Ok(sink)
     }
@@ -349,14 +377,11 @@ impl Drop for AirPlaySink {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        self.shared.running.store(false, Ordering::Release);
         // Ends the event channel reader, which holds its own handle to the socket.
         if let Some(events) = &self._events {
             let _ = events.shutdown(std::net::Shutdown::Both);
         }
-        for t in self.threads.drain(..) {
-            let _ = t.join();
-        }
+        // The network threads stop and are waited for as `_threads` goes.
         log_debug!("airplay: session ended: {}", self.shared.stats.summary());
     }
 }
@@ -447,12 +472,12 @@ mod tests {
             output_latency: 0,
             _events: None,
             _ptp: None,
+            _threads: Threads { shared: shared.clone(), handles: vec![audio_thread] },
             shared,
             producer,
             control,
             worker: Some(worker),
             rtsp_socket,
-            threads: vec![audio_thread],
         }
     }
 
