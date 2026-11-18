@@ -27,6 +27,12 @@ pub enum Error {
     Unexpected(String),
 }
 
+/// Whether `location` is a web address (rather than a file).
+pub fn is_web(location: &str) -> bool {
+    let lower = location.get(..8).unwrap_or(location).to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
 /// `url` safe for the log: its host and the file it names, nothing between (an
 /// Xtream link carries the user name and password in its path) and no query.
 pub fn redact(url: &str) -> String {
@@ -66,7 +72,7 @@ pub fn reader(url: &str) -> Result<Box<dyn BufRead + Send>, Error> {
 
 /// A file or URL as a reader, gunzipped if needed.
 pub fn open(location: &str) -> Result<Box<dyn BufRead + Send>, Error> {
-    if location.starts_with("http://") || location.starts_with("https://") {
+    if is_web(location) {
         reader(location)
     } else {
         let file = std::fs::File::open(location.strip_prefix("file://").unwrap_or(location))?;

@@ -77,7 +77,7 @@ impl Source {
     /// Where it comes from, for a second line.
     pub fn detail(&self) -> String {
         match &self.kind {
-            Kind::Playlist { location, .. } if is_url(location) => format!("m3u · {}", host(location)),
+            Kind::Playlist { location, .. } if http::is_web(location) => format!("m3u · {}", host(location)),
             Kind::Playlist { location, .. } => format!("m3u · {}", location.rsplit('/').next().unwrap_or(location)),
             Kind::Xtream { server, user } => format!("xtream · {user}@{}", host(server)),
         }
@@ -133,10 +133,6 @@ impl Source {
         let hidden = v["hidden"].as_array().into_iter().flatten().filter_map(|g| Some(g.as_str()?.to_string())).collect();
         Some(Source { id: s("id")?, name: s("name").unwrap_or_else(|| "Source".into()), kind, shelves, hidden })
     }
-}
-
-fn is_url(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://")
 }
 
 fn host(url: &str) -> &str {

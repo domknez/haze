@@ -9,7 +9,7 @@ use ureq::ResponseExt;
 /// qualities are self-contained.
 pub fn pick_variant(url: &str, user_agent: &str, referrer: Option<&str>) -> Option<String> {
     let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://")) || !lower.split('?').next()?.ends_with(".m3u8") {
+    if !crate::iptv::http::is_web(&lower) || !lower.split('?').next()?.ends_with(".m3u8") {
         return None;
     }
     let agent: ureq::Agent =

@@ -67,7 +67,7 @@ impl SourceForm {
         };
         match &source.kind {
             Kind::Playlist { location, epg } => {
-                if location.starts_with("http://") || location.starts_with("https://") {
+                if crate::iptv::http::is_web(location) {
                     f.mode = Mode::Link;
                     f.url = location.clone();
                 } else {
