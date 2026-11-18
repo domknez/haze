@@ -7,6 +7,7 @@ use ffmpeg_next as ffmpeg;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Once};
+use std::thread::JoinHandle;
 
 /// Packets that may wait for the video thread. The picture waits for the sound,
 /// which is two seconds behind on an AirPlay speaker, so this must hold more than
@@ -85,6 +86,19 @@ struct Demuxer<'a> {
     subtitles: Option<SubtitleTrack>,
     /// Read to the end; waiting for a seek or the stop.
     ended: bool,
+    /// The decoding threads, which end once their packets stop coming.
+    threads: Vec<JoinHandle<()>>,
+}
+
+impl Drop for Demuxer<'_> {
+    /// Let the decoding threads go and wait for them: the player counts as stopped
+    /// once its output is closed.
+    fn drop(&mut self) {
+        (self.video_tx, self.audio_tx) = (None, None);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
 }
 
 fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
@@ -93,22 +107,15 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
     if let Some(at) = request.start_at {
         demuxer.seek(demuxer.info_start() + at);
     }
-    loop {
-        if shared.stopped() {
-            return Ok(());
-        }
-        demuxer.drop_unheard();
-        if let Some(command) = demuxer.next_command(commands) {
-            demuxer.obey(command);
-        }
-        if demuxer.ended {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            continue;
-        }
-        if !demuxer.read_packet()? {
-            return Ok(());
-        }
+    let result = demuxer.pump(commands);
+    // Say so before the demuxer waits for its threads on the way out: the app
+    // reconnects on it.
+    if let Err(e) = &result
+        && !shared.stopped()
+    {
+        shared.set_status(Status::Failed(e.clone()));
     }
+    result
 }
 
 impl<'a> Demuxer<'a> {
@@ -144,6 +151,7 @@ impl<'a> Demuxer<'a> {
             unheard: None,
             subtitles: None,
             ended: false,
+            threads: Vec::new(),
         }))
     }
 
@@ -158,7 +166,7 @@ impl<'a> Demuxer<'a> {
             info.fps = (fps.numerator() > 0 && fps.denominator() > 0).then(|| fps.numerator() as f32 / fps.denominator() as f32);
             let (tx, rx) = sync_channel(VIDEO_QUEUE);
             let (s, tb, has_audio) = (self.shared.clone(), stream.time_base(), self.audio_index.is_some());
-            spawn("video", move || video::run(s, decoder, tb, rx, has_audio))?;
+            self.threads.push(spawn("video", move || video::run(s, decoder, tb, rx, has_audio))?);
             self.video_tx = Some(tx);
         }
         match self.audio_index.and_then(|i| self.input.stream(i)) {
@@ -168,13 +176,29 @@ impl<'a> Demuxer<'a> {
                 info.audio_channels = decoder.channels();
                 let (tx, rx) = sync_channel(AUDIO_QUEUE);
                 let (s, tb) = (self.shared.clone(), stream.time_base());
-                spawn("audio", move || audio::run(s, decoder, tb, rx, settings))?;
+                self.threads.push(spawn("audio", move || audio::run(s, decoder, tb, rx, settings))?);
                 self.audio_tx = Some(tx);
             }
             None => self.unheard = Some(settings.commands),
         }
         *self.shared.info.locked() = info;
         self.shared.set_status(Status::Buffering);
+        Ok(())
+    }
+
+    /// Read and pass on packets, and obey commands, until stopped.
+    fn pump(&mut self, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
+        while !self.shared.stopped() {
+            self.drop_unheard();
+            if let Some(command) = self.next_command(commands) {
+                self.obey(command);
+            }
+            if self.ended {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            } else if !self.read_packet()? {
+                break;
+            }
+        }
         Ok(())
     }
 
@@ -349,8 +373,8 @@ impl<'a> Demuxer<'a> {
     }
 }
 
-fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<(), String> {
-    std::thread::Builder::new().name(name.into()).spawn(f).map(drop).map_err(|e| e.to_string())
+fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>, String> {
+    std::thread::Builder::new().name(name.into()).spawn(f).map_err(|e| e.to_string())
 }
 
 /// Go to `t` seconds in and drop what the decoders have queued; false when the

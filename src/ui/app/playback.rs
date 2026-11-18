@@ -42,18 +42,18 @@ impl App {
         }
     }
 
-    /// A player for `playing`, opened once the old one stopped (providers often allow
-    /// one connection); None when it can't be played.
+    /// A player for `playing`, which starts once the one before has stopped (see
+    /// [`crate::media::Stopping`]); None when it can't be played.
     fn open(&mut self, ctx: &egui::Context, playing: &Playing, start_at: Option<f64>) -> Option<Player> {
         let request = Request { start_at, ..self.request_for(playing)? };
         log_info!("playing {}", crate::iptv::http::redact(&request.url));
         self.keep_progress();
-        self.session.player = None;
+        let previous = self.session.player.take().map(Player::stop);
         self.video.clear();
         let repaint = ctx.clone();
         // A zero-delay request draws twice (egui lets layouts settle); a frame of video
         // needs one pass.
-        let player = Player::open(request, self.output.clone(), self.effective_volume(), move || {
+        let player = Player::open(request, self.output.clone(), self.effective_volume(), previous, move || {
             repaint.request_repaint_after(Duration::from_millis(1))
         });
         player.set_picture_delay(self.picture_delay());

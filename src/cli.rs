@@ -102,7 +102,7 @@ fn probe(url: &str, seconds: u64, from: Option<f64>) -> bool {
     // A file on disk is a recording; anything else is taken for a live channel.
     let live = !std::path::Path::new(url).is_file();
     let request = Request { url: url.to_string(), user_agent: None, referrer: None, live, start_at: from };
-    let player = Player::open(request, Output::Local, 0.3, || {});
+    let player = Player::open(request, Output::Local, 0.3, None, || {});
     let start = Instant::now();
     let mut last = (0, Status::Opening);
     let (mut subtitles_on, mut said) = (false, None);

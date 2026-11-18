@@ -18,6 +18,7 @@ pub use frame::VideoFrame;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 /// What to play.
 #[derive(Clone, Debug, PartialEq)]
@@ -155,10 +156,32 @@ pub struct Player {
     audio: Sender<AudioCmd>,
     demux: Sender<DemuxCmd>,
     pub request: Request,
+    /// The demuxer, which ends after the decoding threads it started.
+    thread: Option<JoinHandle<()>>,
+}
+
+/// A player told to stop, whose threads may still be closing the connection and
+/// the output. The next player waits for them (on its own thread): providers often
+/// allow one connection, and a speaker takes one sender at a time.
+pub struct Stopping(Option<JoinHandle<()>>);
+
+impl Stopping {
+    fn wait(self) {
+        if let Some(thread) = self.0 {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl Player {
-    pub fn open(request: Request, output: Output, volume: f32, repaint: impl Fn() + Send + Sync + 'static) -> Player {
+    /// Start playing `request`, once `after` (the player before, if any) has stopped.
+    pub fn open(
+        request: Request,
+        output: Output,
+        volume: f32,
+        after: Option<Stopping>,
+        repaint: impl Fn() + Send + Sync + 'static,
+    ) -> Player {
         let shared = Arc::new(Shared {
             status: Mutex::new(Status::Opening),
             info: Mutex::default(),
@@ -179,10 +202,19 @@ impl Player {
         let (demux_tx, demux_rx) = channel();
         let settings = audio::Settings { output, volume, commands: audio_rx };
         let (s, r) = (shared.clone(), request.clone());
-        if let Err(e) = std::thread::Builder::new().name("demux".into()).spawn(move || demux::run(s, r, settings, demux_rx)) {
-            shared.set_status(Status::Failed(format!("couldn't start playing: {e}")));
-        }
-        Player { shared, audio: audio_tx, demux: demux_tx, request }
+        let thread = std::thread::Builder::new().name("demux".into()).spawn(move || {
+            if let Some(previous) = after {
+                previous.wait();
+            }
+            demux::run(s, r, settings, demux_rx);
+        });
+        let thread = thread.inspect_err(|e| shared.set_status(Status::Failed(format!("couldn't start playing: {e}")))).ok();
+        Player { shared, audio: audio_tx, demux: demux_tx, request, thread }
+    }
+
+    /// Stop playing; the threads finish in the background.
+    pub fn stop(mut self) -> Stopping {
+        Stopping(self.thread.take())
     }
 
     pub fn status(&self) -> Status {
