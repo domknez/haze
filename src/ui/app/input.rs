@@ -172,3 +172,27 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_key_does_one_thing() {
+        let mut keys: Vec<_> = KEYS.iter().map(|(k, _)| *k).collect();
+        keys.sort_by_key(|k| k.name());
+        keys.dedup();
+        assert_eq!(keys.len(), KEYS.len());
+    }
+
+    #[test]
+    fn the_speaker_steps_the_volume_from_where_it_is() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let remotes = Remotes { speaker: Some((dacp::Server, rx)), now_playing: None };
+        tx.send(Remote::VolumeStep(-0.1)).unwrap();
+        tx.send(Remote::Next).unwrap();
+        let acts = remotes.presses(0.5);
+        assert!(matches!(acts[..], [Act::Volume(v), Act::Step(1)] if (v - 0.4).abs() < 1e-6));
+        assert!(remotes.presses(0.5).is_empty());
+    }
+}

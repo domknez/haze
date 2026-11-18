@@ -110,6 +110,27 @@ mod tests {
     use crate::iptv::xtream;
 
     #[test]
+    fn every_change_moves_the_revision() {
+        let mut m = Marks::default();
+        let mut last = m.revision();
+        let mut changed = |m: &Marks| {
+            let moved = m.revision() > last;
+            last = m.revision();
+            moved
+        };
+        m.toggle_favorite("a", "1");
+        assert!(changed(&m));
+        m.toggle_favorite("a", "2");
+        m.move_favorite("a", "2", "1", false);
+        assert!(changed(&m));
+        m.watched("a", "1");
+        assert!(changed(&m));
+        m.forget_source("a");
+        assert!(changed(&m));
+        assert!(!changed(&m), "reading changes nothing");
+    }
+
+    #[test]
     fn favorites_move_among_their_source() {
         let mut m = Marks::default();
         for (s, k) in [("a", "1"), ("b", "x"), ("a", "2"), ("a", "3"), ("b", "y")] {
