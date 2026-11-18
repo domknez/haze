@@ -41,7 +41,7 @@ impl Rtsp {
             url,
             session: None,
             dacp_id,
-            active_remote: fastrand::u32(..).to_string(),
+            active_remote: super::dacp::active_remote().to_string(),
         })
     }
 

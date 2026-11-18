@@ -2,6 +2,10 @@
 //! (volume, play/pause, skip) back to the sender: they look up
 //! `iTunes_Ctrl_<DACP-ID>._dacp._tcp` via mDNS and issue plain HTTP requests such as
 //! `GET /ctrl-int/1/setproperty?dmcp.device-volume=-12.5`.
+//!
+//! The server listens on every interface, so a press is taken only from a speaker
+//! haze plays on: one that comes from its address, or carries the `Active-Remote`
+//! haze gave it.
 
 use crate::sync::Lock;
 use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
@@ -15,6 +19,41 @@ use std::time::Duration;
 pub fn id() -> &'static str {
     static ID: OnceLock<String> = OnceLock::new();
     ID.get_or_init(|| format!("{:016X}", fastrand::u64(..)))
+}
+
+/// Sent to receivers as `Active-Remote`; they send it back with every press.
+pub fn active_remote() -> &'static str {
+    static ACTIVE_REMOTE: OnceLock<String> = OnceLock::new();
+    ACTIVE_REMOTE.get_or_init(|| fastrand::u32(..).to_string())
+}
+
+/// Addresses of the speakers haze plays on now, one entry per session.
+static SPEAKERS: Mutex<Vec<IpAddr>> = Mutex::new(Vec::new());
+
+/// A speaker whose presses are taken while this is held (for its session).
+pub struct Speaker(IpAddr);
+
+impl Speaker {
+    pub fn new(ip: IpAddr) -> Self {
+        let ip = ip.to_canonical();
+        SPEAKERS.locked().push(ip);
+        Speaker(ip)
+    }
+}
+
+impl Drop for Speaker {
+    fn drop(&mut self) {
+        let mut speakers = SPEAKERS.locked();
+        if let Some(i) = speakers.iter().position(|ip| *ip == self.0) {
+            speakers.remove(i);
+        }
+    }
+}
+
+/// Whether a press comes from a speaker haze plays on: from its address, or with
+/// the `Active-Remote` haze gave it.
+fn trusted(peer: Option<IpAddr>, active: Option<&str>, speakers: &[IpAddr]) -> bool {
+    peer.is_some_and(|ip| speakers.contains(&ip.to_canonical())) || active == Some(active_remote())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,6 +208,7 @@ fn read_line(reader: &mut impl BufRead, line: &mut String) -> bool {
 }
 
 fn handle(stream: TcpStream) {
+    let peer = stream.peer_addr().ok().map(|a| a.ip());
     stream.set_read_timeout(Some(Duration::from_secs(600))).ok();
     let Ok(read) = stream.try_clone() else { return };
     let mut reader = BufReader::new(read);
@@ -179,6 +219,7 @@ fn handle(stream: TcpStream) {
         if !read_line(&mut reader, &mut request) {
             return;
         }
+        let mut active = None;
         loop {
             if !read_line(&mut reader, &mut line) {
                 return;
@@ -186,14 +227,26 @@ fn handle(stream: TcpStream) {
             if line.trim_end().is_empty() {
                 break;
             }
+            if let Some((name, value)) = line.split_once(':')
+                && name.trim().eq_ignore_ascii_case("Active-Remote")
+            {
+                active = Some(value.trim().to_string());
+            }
         }
         let path = request.split_whitespace().nth(1).unwrap_or("");
         let command = parse(path);
-        log_debug!("dacp: {path} -> {command:?}");
-        if let Some(c) = command {
-            deliver(c);
-        }
-        let status = if command.is_some() { "204 No Content" } else { "404 Not Found" };
+        let status = match command {
+            Some(c) if trusted(peer, active.as_deref(), &SPEAKERS.locked()) => {
+                log_debug!("dacp: {path} -> {c:?}");
+                deliver(c);
+                "204 No Content"
+            }
+            Some(_) => {
+                log_warn!("dacp: refused {path} from {peer:?} (Active-Remote {active:?}): not a speaker haze plays on");
+                "403 Forbidden"
+            }
+            None => "404 Not Found",
+        };
         let resp = format!("HTTP/1.1 {status}\r\nDAAP-Server: haze\r\nContent-Length: 0\r\n\r\n");
         if writer.write_all(resp.as_bytes()).is_err() {
             return;
@@ -204,6 +257,19 @@ fn handle(stream: TcpStream) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn takes_presses_only_from_the_speaker_played_on() {
+        let speaker: IpAddr = [192, 168, 1, 20].into();
+        let other: IpAddr = [192, 168, 1, 99].into();
+        let mapped: IpAddr = "::ffff:192.168.1.20".parse().unwrap();
+        assert!(trusted(Some(speaker), None, &[speaker]));
+        assert!(trusted(Some(mapped), None, &[speaker]), "IPv4 over IPv6");
+        assert!(trusted(Some(other), Some(active_remote()), &[speaker]), "its Active-Remote");
+        assert!(!trusted(Some(other), None, &[speaker]));
+        assert!(!trusted(Some(other), Some("1"), &[speaker]));
+        assert!(!trusted(Some(speaker), None, &[]), "no session");
+    }
 
     #[test]
     fn reads_lines_up_to_a_limit() {

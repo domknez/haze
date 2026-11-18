@@ -34,6 +34,8 @@ pub struct AirPlaySink {
     _events: Option<TcpStream>,
     /// Keeps our PTP grandmaster talking to this receiver.
     _ptp: Option<PtpPeer>,
+    /// The speaker's button presses are taken while the session lasts.
+    _remote: super::dacp::Speaker,
     shared: Arc<Shared>,
     producer: rtrb::Producer<i16>,
     /// Requests for the control worker, and the worker.
@@ -159,6 +161,7 @@ impl AirPlaySink {
         let mut sink = Self {
             _events: events,
             _ptp: ptp,
+            _remote: super::dacp::Speaker::new(remote_ip),
             shared,
             producer,
             control,
@@ -472,6 +475,7 @@ mod tests {
             output_latency: 0,
             _events: None,
             _ptp: None,
+            _remote: crate::output::airplay::dacp::Speaker::new(local_ip),
             _threads: Threads { shared: shared.clone(), handles: vec![audio_thread] },
             shared,
             producer,
