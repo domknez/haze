@@ -2,6 +2,7 @@
 
 use crate::sync::Lock;
 use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
+use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -116,6 +117,80 @@ const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 /// machine slept (the monotonic clock stops during sleep).
 const SLEEP_GAP: Duration = Duration::from_secs(10);
 
+/// The discovery thread's side: the mDNS browse and the list it keeps up to date.
+struct Browser {
+    daemon: ServiceDaemon,
+    events: mdns_sd::Receiver<ServiceEvent>,
+    list: Arc<Mutex<Vec<Device>>>,
+    /// This computer's addresses, so it isn't listed as a speaker.
+    own_ips: Vec<IpAddr>,
+    watch: Watch,
+    /// Speakers seen without an IPv4 address yet: keep searching for them.
+    incomplete: HashSet<String>,
+    /// Asks to search again now.
+    refresh: mpsc::Receiver<()>,
+}
+
+impl Browser {
+    fn run(mut self, on_change: impl Fn()) {
+        loop {
+            let (changed, lost) = match self.events.recv_timeout(WATCH_INTERVAL) {
+                Ok(event) => (self.take(event), false),
+                Err(mdns_sd::RecvTimeoutError::Disconnected) => {
+                    // The browse ended (daemon hiccup): pause, then start over.
+                    std::thread::sleep(WATCH_INTERVAL);
+                    (false, true)
+                }
+                Err(_) => (false, false),
+            };
+            if changed {
+                on_change();
+            }
+            let asked = self.refresh.try_recv().is_ok();
+            let empty = self.list.locked().is_empty() || !self.incomplete.is_empty();
+            if let Some(reason) = self.watch.check(asked, empty).or(lost.then_some("browse ended")) {
+                self.search_again(reason);
+            }
+        }
+    }
+
+    /// Bring the list up to date with `event`; true when it changed.
+    fn take(&mut self, event: ServiceEvent) -> bool {
+        match event {
+            ServiceEvent::ServiceResolved(info) => {
+                let name = info.get_fullname().to_string();
+                if info.get_addresses_v4().is_empty() {
+                    self.incomplete.insert(name);
+                } else {
+                    self.incomplete.remove(&name);
+                }
+                let Some(device) = Device::from_service(&info, &self.own_ips) else { return false };
+                let (name, addrs) = (device.name.clone(), device.addrs.clone());
+                let changed = upsert(&mut self.list.locked(), device);
+                if changed {
+                    log_debug!("airplay discovery: found {name} at {addrs:?}");
+                }
+                changed
+            }
+            ServiceEvent::ServiceRemoved(_, full) => {
+                self.list.locked().retain(|d| d.id != full);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn search_again(&mut self, reason: &str) {
+        log_debug!("airplay discovery: searching again ({reason})");
+        self.own_ips = local_ips();
+        let _ = self.daemon.stop_browse(SERVICE);
+        match self.daemon.browse(SERVICE) {
+            Ok(fresh) => self.events = fresh,
+            Err(e) => log_warn!("airplay discovery: {e}"),
+        }
+    }
+}
+
 impl Discovery {
     /// Start browsing; `on_change` runs (on a background thread) when the list changes.
     ///
@@ -127,69 +202,19 @@ impl Discovery {
     /// [`refresh`]: Discovery::refresh
     pub fn start(on_change: impl Fn() + Send + 'static) -> Result<Self, String> {
         let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
-        let mut events = daemon.browse(SERVICE).map_err(|e| e.to_string())?;
+        let events = daemon.browse(SERVICE).map_err(|e| e.to_string())?;
         let devices = Arc::new(Mutex::new(Vec::<Device>::new()));
         let (refresh, refresh_rx) = mpsc::channel::<()>();
-        let (list, browser) = (devices.clone(), daemon.clone());
-        std::thread::Builder::new()
-            .name("airplay-discovery".into())
-            .spawn(move || {
-                let mut own_ips = local_ips();
-                let mut watch = Watch::new();
-                // Speakers seen without an IPv4 address yet: keep searching for them.
-                let mut incomplete = std::collections::HashSet::<String>::new();
-                loop {
-                    let mut lost = false;
-                    let changed = match events.recv_timeout(WATCH_INTERVAL) {
-                        Ok(ServiceEvent::ServiceResolved(info)) => {
-                            let name = info.get_fullname().to_string();
-                            if info.get_addresses_v4().is_empty() {
-                                incomplete.insert(name);
-                            } else {
-                                incomplete.remove(&name);
-                            }
-                            match Device::from_service(&info, &own_ips) {
-                                Some(device) => {
-                                    let (name, addrs) = (device.name.clone(), device.addrs.clone());
-                                    let changed = upsert(&mut list.locked(), device);
-                                    if changed {
-                                        log_debug!("airplay discovery: found {name} at {addrs:?}");
-                                    }
-                                    changed
-                                }
-                                None => false,
-                            }
-                        }
-                        Ok(ServiceEvent::ServiceRemoved(_, full)) => {
-                            list.locked().retain(|d| d.id != full);
-                            true
-                        }
-                        Ok(_) => false,
-                        Err(mdns_sd::RecvTimeoutError::Disconnected) => {
-                            // The browse ended (daemon hiccup): pause, then start over.
-                            std::thread::sleep(WATCH_INTERVAL);
-                            lost = true;
-                            false
-                        }
-                        Err(_) => false,
-                    };
-                    if changed {
-                        on_change();
-                    }
-                    let asked = refresh_rx.try_recv().is_ok();
-                    let empty = list.locked().is_empty() || !incomplete.is_empty();
-                    if let Some(reason) = watch.check(asked, empty).or(lost.then_some("browse ended")) {
-                        log_debug!("airplay discovery: searching again ({reason})");
-                        own_ips = local_ips();
-                        let _ = browser.stop_browse(SERVICE);
-                        match browser.browse(SERVICE) {
-                            Ok(fresh) => events = fresh,
-                            Err(e) => log_warn!("airplay discovery: {e}"),
-                        }
-                    }
-                }
-            })
-            .map_err(|e| e.to_string())?;
+        let browser = Browser {
+            daemon: daemon.clone(),
+            events,
+            list: devices.clone(),
+            own_ips: local_ips(),
+            watch: Watch::new(),
+            incomplete: HashSet::new(),
+            refresh: refresh_rx,
+        };
+        std::thread::Builder::new().name("airplay-discovery".into()).spawn(move || browser.run(on_change)).map_err(|e| e.to_string())?;
         Ok(Self { devices, refresh, _daemon: daemon })
     }
 
