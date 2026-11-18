@@ -2,6 +2,7 @@
 //! drives it (the speaker can't be told to wait, the picture can); without audio
 //! the wall clock does.
 
+use crate::sync::Lock;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -18,19 +19,19 @@ struct State {
 impl Clock {
     /// Stream time now, if the clock has started.
     pub fn now(&self) -> Option<f64> {
-        let s = *self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let s = *self.0.locked();
         let (t, at) = s.base?;
         Some(if s.paused { t } else { t + at.elapsed().as_secs_f64() })
     }
 
     /// Stream time `t` is being heard now.
     pub fn set(&self, t: f64) {
-        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.0.locked();
         s.base = Some((t, Instant::now()));
     }
 
     pub fn set_paused(&self, paused: bool) {
-        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.0.locked();
         if s.paused == paused {
             return;
         }
@@ -43,7 +44,7 @@ impl Clock {
     }
 
     pub fn reset(&self) {
-        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.0.locked();
         s.base = None;
     }
 }

@@ -3,6 +3,7 @@
 
 use crate::media::VideoFrame;
 use crate::media::frame::Layout;
+use crate::sync::Lock;
 use eframe::egui::{self, Rect};
 use eframe::egui_glow;
 use eframe::glow::{self, HasContext};
@@ -45,20 +46,20 @@ impl Video {
         }
         self.serial = serial;
         if let Some(f) = frame {
-            self.inner.lock().unwrap_or_else(|e| e.into_inner()).pending = Some(f);
+            self.inner.locked().pending = Some(f);
         }
     }
 
     /// Forget the picture (another channel starts).
     pub fn clear(&mut self) {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.inner.locked();
         inner.pending = None;
         inner.uploaded = None;
         self.serial = 0;
     }
 
     pub fn has_picture(&self) -> bool {
-        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let inner = self.inner.locked();
         inner.uploaded.is_some() || inner.pending.is_some()
     }
 
@@ -66,7 +67,7 @@ impl Video {
     pub fn paint(&self, painter: &egui::Painter, rect: Rect) {
         let inner = self.inner.clone();
         let callback = egui_glow::CallbackFn::new(move |_info, painter| {
-            let mut inner = inner.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inner = inner.locked();
             // SAFETY: called on the GL thread with egui_glow's current context.
             unsafe { inner.draw(painter.gl()) };
         });

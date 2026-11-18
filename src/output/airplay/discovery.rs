@@ -1,5 +1,6 @@
 //! Finding AirPlay speakers on the local network (mDNS `_raop._tcp`).
 
+use crate::sync::Lock;
 use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::mpsc::{self, Sender};
@@ -150,7 +151,7 @@ impl Discovery {
                             match Device::from_service(&info, &own_ips) {
                                 Some(device) => {
                                     let (name, addrs) = (device.name.clone(), device.addrs.clone());
-                                    let changed = upsert(&mut list.lock().unwrap(), device);
+                                    let changed = upsert(&mut list.locked(), device);
                                     if changed {
                                         log_debug!("airplay discovery: found {name} at {addrs:?}");
                                     }
@@ -160,7 +161,7 @@ impl Discovery {
                             }
                         }
                         Ok(ServiceEvent::ServiceRemoved(_, full)) => {
-                            list.lock().unwrap().retain(|d| d.id != full);
+                            list.locked().retain(|d| d.id != full);
                             true
                         }
                         Ok(_) => false,
@@ -176,7 +177,7 @@ impl Discovery {
                         on_change();
                     }
                     let asked = refresh_rx.try_recv().is_ok();
-                    let empty = list.lock().unwrap().is_empty() || !incomplete.is_empty();
+                    let empty = list.locked().is_empty() || !incomplete.is_empty();
                     if let Some(reason) = watch.check(asked, empty).or(lost.then_some("browse ended")) {
                         log_debug!("airplay discovery: searching again ({reason})");
                         own_ips = local_ips();
@@ -193,7 +194,7 @@ impl Discovery {
     }
 
     pub fn devices(&self) -> Vec<Device> {
-        self.devices.lock().unwrap().clone()
+        self.devices.locked().clone()
     }
 
     /// Search again now (e.g. the speaker menu was opened), instead of waiting for

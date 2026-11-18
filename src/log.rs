@@ -7,10 +7,11 @@
 //!
 //! Use the macros: `log_error!`, `log_warn!`, `log_info!`, `log_debug!`, `log_trace!`.
 
+use crate::sync::Lock;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// What goes into the log file.
@@ -91,7 +92,7 @@ pub fn install_panic_hook() {
             let place = info.location().map_or_else(|| "?".into(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
             let line = format!("{} [panic] {}: {message} at {place}\n", utc_now(), thread_name());
             // The lock may be poisoned by an earlier panic; the file is still fine.
-            let _ = file.lock().unwrap_or_else(PoisonError::into_inner).write_all(line.as_bytes());
+            let _ = file.locked().write_all(line.as_bytes());
         }
         previous(info);
     }));
@@ -121,7 +122,7 @@ pub fn write(level: Level, args: std::fmt::Arguments) {
         && let Some(file) = FILE.get()
     {
         let line = format!("{} {t:9.3} [{name}] {}: {args}\n", utc_now(), thread_name());
-        let _ = file.lock().unwrap().write_all(line.as_bytes());
+        let _ = file.locked().write_all(line.as_bytes());
     }
 }
 

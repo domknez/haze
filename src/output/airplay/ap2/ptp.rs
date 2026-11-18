@@ -6,6 +6,7 @@
 //! Binds UDP 319 (event) and 320 (general). Fine without root on macOS and Windows;
 //! Linux needs CAP_NET_BIND_SERVICE or a lowered `ip_unprivileged_port_start`.
 
+use crate::sync::Lock;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -54,7 +55,7 @@ pub struct PtpPeer {
 
 impl Drop for PtpPeer {
     fn drop(&mut self) {
-        let mut peers = self.master.peers.lock().unwrap();
+        let mut peers = self.master.peers.locked();
         if let Some(i) = peers.iter().position(|(ip, _)| *ip == self.ip) {
             peers[i].1 -= 1;
             if peers[i].1 == 0 {
@@ -73,7 +74,7 @@ impl PtpPeer {
 /// Shared master, started on first use.
 pub fn join(ip: IpAddr) -> Result<PtpPeer, String> {
     static MASTER: Mutex<Weak<PtpMaster>> = Mutex::new(Weak::new());
-    let mut slot = MASTER.lock().unwrap();
+    let mut slot = MASTER.locked();
     let master = match slot.upgrade() {
         Some(m) => m,
         None => {
@@ -83,7 +84,7 @@ pub fn join(ip: IpAddr) -> Result<PtpPeer, String> {
         }
     };
     {
-        let mut peers = master.peers.lock().unwrap();
+        let mut peers = master.peers.locked();
         match peers.iter_mut().find(|(p, _)| *p == ip) {
             Some((_, n)) => *n += 1,
             None => peers.push((ip, 1)),
@@ -129,10 +130,12 @@ impl PtpMaster {
                     // Delay_Req arrives on the event port; answer on general.
                     if let Ok((n, from)) = m.event.recv_from(&mut buf) {
                         let rx = now_ns();
-                        if n >= 44 && buf[0] & 0x0f == MSG_DELAY_REQ {
+                        if n >= 44
+                            && buf[0] & 0x0f == MSG_DELAY_REQ
+                            && let Some(port_id) = buf[20..].first_chunk::<10>()
+                        {
                             let req_seq = u16::from_be_bytes([buf[30], buf[31]]);
-                            let port_id: [u8; 10] = buf[20..30].try_into().unwrap();
-                            let resp = m.delay_resp(req_seq, &port_id, rx);
+                            let resp = m.delay_resp(req_seq, port_id, rx);
                             let _ = m.general.send_to(&resp, SocketAddr::new(from.ip(), GENERAL_PORT));
                         }
                     }
@@ -143,7 +146,7 @@ impl PtpMaster {
     }
 
     fn send_round(&self, seq: u16, announce: bool) {
-        let peers: Vec<IpAddr> = self.peers.lock().unwrap().iter().map(|(ip, _)| *ip).collect();
+        let peers: Vec<IpAddr> = self.peers.locked().iter().map(|(ip, _)| *ip).collect();
         if announce {
             let a = self.announce(seq);
             let s = self.signaling(seq);

@@ -175,9 +175,8 @@ pub fn decode(data: &[u8]) -> Result<Value, String> {
     let t = &data[data.len() - 32..];
     let offset_size = t[6] as usize;
     let ref_size = t[7] as usize;
-    let num = u64::from_be_bytes(t[8..16].try_into().unwrap()) as usize;
-    let top = u64::from_be_bytes(t[16..24].try_into().unwrap()) as usize;
-    let table = u64::from_be_bytes(t[24..32].try_into().unwrap()) as usize;
+    let field = |range: std::ops::Range<usize>| t[range].iter().fold(0usize, |n, &b| (n << 8) | usize::from(b));
+    let (num, top, table) = (field(8..16), field(16..24), field(24..32));
     let p = Parser { data, offset_size, ref_size, num, table };
     p.object(top, 0)
 }

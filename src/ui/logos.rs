@@ -2,6 +2,7 @@
 //! size they're shown at, uploaded as textures and evicted least-recently-used once
 //! a byte budget is exceeded.
 
+use crate::sync::Lock;
 use eframe::egui::{self, ColorImage, TextureHandle, TextureId, TextureOptions};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -59,7 +60,9 @@ impl Logos {
             .into();
         for i in 0..WORKERS {
             let (queue, tx, agent, ctx) = (self.queue.clone(), tx.clone(), agent.clone(), self.ctx.clone());
-            std::thread::Builder::new().name(format!("logos-{i}")).spawn(move || worker(queue, tx, agent, ctx)).expect("spawn logo worker");
+            if let Err(e) = std::thread::Builder::new().name(format!("logos-{i}")).spawn(move || worker(queue, tx, agent, ctx)) {
+                log_warn!("logo fetcher {i} didn't start: {e}");
+            }
         }
     }
 
@@ -117,7 +120,7 @@ impl Logos {
                 self.start_workers();
                 self.slots.insert(url.to_string(), Slot::Loading);
                 let (lock, cvar) = &*self.queue;
-                let mut q = lock.lock().unwrap();
+                let mut q = lock.locked();
                 q.push_front(url.to_string());
                 // Drop the stalest requests; they are re-requested if still visible.
                 while q.len() > MAX_QUEUE {
@@ -136,12 +139,12 @@ fn worker(queue: Queue, tx: Sender<Done>, agent: ureq::Agent, ctx: egui::Context
     loop {
         let url = {
             let (lock, cvar) = &*queue;
-            let mut q = lock.lock().unwrap();
+            let mut q = lock.locked();
             loop {
                 if let Some(u) = q.pop_front() {
                     break u;
                 }
-                q = cvar.wait(q).unwrap();
+                q = cvar.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         };
         let result = fetch(&agent, &url).map(|img| Done::Image(url.clone(), img)).unwrap_or(Done::Failed(url));

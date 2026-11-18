@@ -364,6 +364,7 @@ impl Drop for AirPlaySink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::Lock;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::sync::Mutex;
@@ -402,7 +403,7 @@ mod tests {
                 }
                 let mut body = vec![0; length];
                 reader.read_exact(&mut body).unwrap();
-                log.lock().unwrap().push(format!("{method} {}", String::from_utf8_lossy(&body).trim_end()).trim_end().to_string());
+                log.locked().push(format!("{method} {}", String::from_utf8_lossy(&body).trim_end()).trim_end().to_string());
                 if fail_on == Some(method.as_str()) {
                     return; // hang up
                 }
@@ -487,10 +488,10 @@ mod tests {
         assert!(asked.elapsed() >= Duration::from_millis(300), "accepted only after the FLUSH reply");
         assert!(sink.healthy());
 
-        assert!(eventually(|| seen.lock().unwrap().len() == 3));
+        assert!(eventually(|| seen.locked().len() == 3));
         drop(sink);
         assert_eq!(
-            *seen.lock().unwrap(),
+            *seen.locked(),
             ["SET_PARAMETER volume: -15.000000", "FLUSH", "SET_PARAMETER volume: -24.000000", "TEARDOWN"],
             "in order, the volumes during the flush sent as one"
         );

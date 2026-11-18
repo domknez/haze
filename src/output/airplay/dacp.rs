@@ -3,6 +3,7 @@
 //! `iTunes_Ctrl_<DACP-ID>._dacp._tcp` via mDNS and issue plain HTTP requests such as
 //! `GET /ctrl-int/1/setproperty?dmcp.device-volume=-12.5`.
 
+use crate::sync::Lock;
 use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -52,7 +53,7 @@ static HANDLER: Mutex<Option<Handler>> = Mutex::new(None);
 
 /// Hand a button press to the app (no-op before [`start`]).
 pub fn deliver(remote: Remote) {
-    if let Some(handler) = HANDLER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+    if let Some(handler) = HANDLER.locked().as_ref() {
         handler(remote);
     }
 }
@@ -88,7 +89,7 @@ impl Advert {
 /// Advertising every interface (VPNs, container bridges, loopback) made receivers
 /// such as Sonos take ~25 s to reach us, so button presses arrived in late bursts.
 pub fn advertise_on(local_ip: IpAddr) {
-    let mut advert = ADVERT.lock().unwrap_or_else(|e| e.into_inner());
+    let mut advert = ADVERT.locked();
     let Some(advert) = advert.as_mut() else { return };
     let _ = advert.daemon.disable_interface(IfKind::All);
     let _ = advert.daemon.enable_interface(IfKind::Addr(local_ip));
@@ -107,7 +108,7 @@ pub struct Server;
 
 impl Drop for Server {
     fn drop(&mut self) {
-        if let Some(advert) = ADVERT.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(advert) = ADVERT.locked().take() {
             if !advert.fullname.is_empty() {
                 advert.unregister();
             }
@@ -118,7 +119,7 @@ impl Drop for Server {
 
 /// Start listening and advertise ourselves. `on_command` runs on the server thread.
 pub fn start(on_command: impl Fn(Remote) + Send + 'static) -> Result<Server, String> {
-    *HANDLER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(on_command));
+    *HANDLER.locked() = Some(Box::new(on_command));
     let listener = TcpListener::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
@@ -126,7 +127,7 @@ pub fn start(on_command: impl Fn(Remote) + Send + 'static) -> Result<Server, Str
     // all-interfaces record would be cached by receivers, which then try its
     // unreachable addresses first.
     let advert = Advert { daemon, port, fullname: String::new() };
-    *ADVERT.lock().unwrap_or_else(|e| e.into_inner()) = Some(advert);
+    *ADVERT.locked() = Some(advert);
 
     std::thread::Builder::new()
         .name("dacp".into())

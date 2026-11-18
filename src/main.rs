@@ -14,6 +14,7 @@ mod library;
 mod media;
 mod output;
 mod settings;
+mod sync;
 mod ui;
 mod update;
 

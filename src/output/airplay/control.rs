@@ -3,6 +3,7 @@
 //! replies (up to a couple of seconds when the network is bad). The sink only
 //! queues them; [`run`] carries them out.
 
+use crate::sync::Lock;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
@@ -84,7 +85,7 @@ impl Queue {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state.locked()
     }
 }
 

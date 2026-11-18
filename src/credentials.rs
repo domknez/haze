@@ -1,6 +1,7 @@
 //! Stored passwords, kept in the OS keychain: one secret per source (an Xtream Codes
 //! password, or a playlist link that carries a login), by the source's id.
 
+use crate::sync::Lock;
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
 
@@ -54,7 +55,7 @@ fn entry_for(account: &str) -> Option<keyring_core::Entry> {
 
 /// Run `f` on the logins, reading them from the keychain the first time.
 fn with_logins<R>(f: impl FnOnce(&mut Logins) -> R) -> R {
-    let mut logins = LOGINS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut logins = LOGINS.locked();
     f(logins.get_or_insert_with(read))
 }
 

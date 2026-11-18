@@ -13,6 +13,7 @@ pub mod subtitle;
 mod video;
 
 use crate::output::Output;
+use crate::sync::Lock;
 pub use frame::VideoFrame;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
@@ -97,7 +98,7 @@ pub struct Shared {
 
 impl Shared {
     fn set_status(&self, s: Status) {
-        let mut cur = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cur = self.status.locked();
         if *cur != s {
             log_debug!("player: {s:?}");
             *cur = s;
@@ -111,7 +112,7 @@ impl Shared {
     }
 
     fn publish(&self, frame: VideoFrame) {
-        *self.frame.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(frame));
+        *self.frame.locked() = Some(Arc::new(frame));
         self.frame_serial.fetch_add(1, Ordering::Release);
         (self.repaint)();
     }
@@ -125,7 +126,7 @@ impl Shared {
 
     fn notify(&self, notice: String) {
         log_warn!("player: {notice}");
-        *self.notice.lock().unwrap_or_else(|e| e.into_inner()) = Some(notice);
+        *self.notice.locked() = Some(notice);
         (self.repaint)();
     }
 }
@@ -174,26 +175,28 @@ impl Player {
         let (demux_tx, demux_rx) = channel();
         let settings = audio::Settings { output, volume, commands: audio_rx };
         let (s, r) = (shared.clone(), request.clone());
-        std::thread::Builder::new().name("demux".into()).spawn(move || demux::run(s, r, settings, demux_rx)).expect("spawn demux thread");
+        if let Err(e) = std::thread::Builder::new().name("demux".into()).spawn(move || demux::run(s, r, settings, demux_rx)) {
+            shared.set_status(Status::Failed(format!("couldn't start playing: {e}")));
+        }
         Player { shared, audio: audio_tx, demux: demux_tx, request }
     }
 
     pub fn status(&self) -> Status {
-        self.shared.status.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.shared.status.locked().clone()
     }
 
     pub fn info(&self) -> StreamInfo {
-        self.shared.info.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.shared.info.locked().clone()
     }
 
     /// The latest frame and its serial number.
     pub fn frame(&self) -> (u64, Option<Arc<VideoFrame>>) {
         let serial = self.shared.frame_serial.load(Ordering::Acquire);
-        (serial, self.shared.frame.lock().unwrap_or_else(|e| e.into_inner()).clone())
+        (serial, self.shared.frame.locked().clone())
     }
 
     pub fn take_notice(&self) -> Option<String> {
-        self.shared.notice.lock().unwrap_or_else(|e| e.into_inner()).take()
+        self.shared.notice.locked().take()
     }
 
     /// Stream time being heard (seconds from the stream's start for recordings).
@@ -245,14 +248,14 @@ impl Player {
     pub fn use_subtitles(&self, cues: Vec<subtitle::Cue>, offset: f64) {
         let _ = self.demux.send(DemuxCmd::Subtitles(None));
         let shifted = cues.into_iter().map(|c| subtitle::Cue { start: c.start + offset, end: c.end + offset, ..c }).collect();
-        self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).replace(shifted);
+        self.shared.cues.locked().replace(shifted);
         (self.shared.repaint)();
     }
 
     /// The subtitles on screen now.
     pub fn subtitles(&self) -> Option<String> {
         let t = self.position()?;
-        self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).at(t)
+        self.shared.cues.locked().at(t)
     }
 }
 

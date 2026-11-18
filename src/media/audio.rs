@@ -4,6 +4,7 @@
 use super::demux::Packet;
 use super::{AudioCmd, Shared, Status};
 use crate::output::{self, Output, RATE, Sink};
+use crate::sync::Lock;
 use ffmpeg::ChannelLayout;
 use ffmpeg::format::Sample;
 use ffmpeg::format::sample::Type as SampleType;
@@ -167,7 +168,7 @@ impl Feeder {
                     && let Some(t) = self.shared.clock.now()
                 {
                     // What the speaker held is gone: play it again from the pause.
-                    *self.shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(t);
+                    *self.shared.resume_at.locked() = Some(t);
                 }
                 self.sink.resume();
             }
@@ -220,7 +221,7 @@ impl Feeder {
         if clock.now().is_none_or(|now| (now - heard).abs() > CLOCK_SLACK) {
             clock.set(heard);
         }
-        if self.shared.status.lock().is_ok_and(|s| *s == Status::Buffering) {
+        if *self.shared.status.locked() == Status::Buffering {
             self.shared.set_status(Status::Playing);
         }
     }

@@ -1,6 +1,7 @@
 //! Opening a stream and handing its packets to the audio and video threads.
 
 use super::{AudioCmd, DemuxCmd, Shared, Status, StreamInfo, Track, audio, codec_label, subtitle, video};
+use crate::sync::Lock;
 use ffmpeg::media::Type;
 use ffmpeg_next as ffmpeg;
 use std::sync::atomic::Ordering;
@@ -169,7 +170,7 @@ impl<'a> Demuxer<'a> {
             }
             None => self.unheard = Some(settings.commands),
         }
-        *self.shared.info.lock().unwrap_or_else(|e| e.into_inner()) = info;
+        *self.shared.info.locked() = info;
         self.shared.set_status(Status::Buffering);
         Ok(())
     }
@@ -204,7 +205,7 @@ impl<'a> Demuxer<'a> {
 
     fn next_command(&self, commands: &Receiver<DemuxCmd>) -> Option<DemuxCmd> {
         // A speaker that threw its buffer away on pause: carry on from where it paused.
-        let resume = self.shared.resume_at.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let resume = self.shared.resume_at.locked().take();
         match resume {
             Some(t) if !self.live => Some(DemuxCmd::Seek(t)),
             _ => commands.try_recv().ok(),
@@ -216,7 +217,7 @@ impl<'a> Demuxer<'a> {
             DemuxCmd::Seek(t) => {
                 // A track's cues come again from where it's read; a file's stay.
                 if self.seek(t) && self.subtitles.is_some() {
-                    self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                    self.shared.cues.locked().clear();
                 }
             }
             DemuxCmd::AudioTrack(i) => self.switch_audio(i),
@@ -244,7 +245,7 @@ impl<'a> Demuxer<'a> {
                 }
                 set_discard(&mut self.input, i, false);
                 self.audio_index = Some(i);
-                let mut info = self.shared.info.lock().unwrap_or_else(|e| e.into_inner());
+                let mut info = self.shared.info.locked();
                 info.audio_track = info.audio_tracks.iter().position(|t| t.stream == i);
             }
             Err(e) => log_warn!("audio track {i}: {e}"),
@@ -254,7 +255,7 @@ impl<'a> Demuxer<'a> {
     fn show_subtitles(&mut self, track: Option<usize>) {
         if let Some((old, ..)) = self.subtitles.take() {
             set_discard(&mut self.input, old, true);
-            self.shared.cues.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            self.shared.cues.locked().clear();
         }
         if let Some((i, stream)) = track.and_then(|i| Some((i, self.input.stream(i)?))) {
             match ffmpeg::codec::Context::from_parameters(stream.parameters()).and_then(|c| c.decoder().subtitle()) {
@@ -274,7 +275,7 @@ impl<'a> Demuxer<'a> {
             }
         }
         let shown = self.subtitles.as_ref().map(|(i, ..)| *i);
-        let mut info = self.shared.info.lock().unwrap_or_else(|e| e.into_inner());
+        let mut info = self.shared.info.locked();
         info.subtitle_track = shown.and_then(|i| info.subtitle_tracks.iter().position(|t| t.stream == i));
         (self.shared.repaint)();
     }
@@ -306,7 +307,7 @@ impl<'a> Demuxer<'a> {
             if let (Some(pts), Ok(true)) = (packet.pts(), decoder.decode(&packet, &mut sub)) {
                 let seconds = |t: i64| t as f64 * f64::from(*tb);
                 let duration = (packet.duration() > 0).then(|| seconds(packet.duration()));
-                let mut cues = self.shared.cues.lock().unwrap_or_else(|e| e.into_inner());
+                let mut cues = self.shared.cues.locked();
                 for cue in subtitle::cues(&sub, seconds(pts), duration) {
                     cues.add(cue);
                 }
