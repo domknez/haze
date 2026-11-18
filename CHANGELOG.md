@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Updates are signed: haze installs a new version only when its checksums carry the
+  signature of the key the releases are made with
+- An AirPlay speaker's buttons are taken only from the speaker haze plays on
+
 ## 0.1.2 (2026-11-18)
 
 - A movie or an episode carried on from where it was left shows the right position,

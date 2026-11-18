@@ -148,7 +148,9 @@ ffmpeg first: `scripts/build-ffmpeg.sh target/ffmpeg`, then
   `scripts/bump-version.py minor` (or `patch`, `major`, `0.5.0`), commit, then
   `git tag v<version> && git push origin main v<version>`.
 
-The Release workflow builds every platform and publishes the GitHub Release; run it by
+The Release workflow builds every platform, signs `SHA256SUMS.txt` with the
+`UPDATE_SIGNING_KEY` secret (made once with `scripts/make-signing-key.sh`; the
+self-updater installs only what that key signed) and publishes the GitHub Release; run it by
 hand from the Actions tab for a dry run that publishes nothing. Adding the Apple secrets
 listed in `.github/workflows/release.yml` makes it sign with a Developer ID and notarize.
 

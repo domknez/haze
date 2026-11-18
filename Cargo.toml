@@ -23,6 +23,8 @@ souvlaki = "0.8"
 ureq = { version = "3", features = ["json"] }
 if-addrs = "0.15"
 sha2 = "0.11"
+# Checking the signature on a release before the self-updater installs it.
+ed25519-compact = { version = "2", default-features = false }
 hkdf = "0.13"
 chacha20poly1305 = "0.11"
 num-bigint = "0.5"

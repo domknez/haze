@@ -1,6 +1,8 @@
 //! Self-update from GitHub Releases: find the latest release, download the file for
 //! this platform, check it against the release's `SHA256SUMS.txt`, swap it in, and
-//! relaunch.
+//! relaunch. The checksums are signed (`SHA256SUMS.txt.sig`, Ed25519) with a key
+//! only the Release workflow holds, so a release that wasn't made there (a stolen
+//! token, a tampered download) isn't installed.
 //!
 //! - macOS: the `.dmg`; its `haze.app` replaces the running bundle.
 //! - Linux: the bare binary (`haze-<v>-linux-<arch>`); the running executable is
@@ -22,6 +24,9 @@ use std::time::Duration;
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 const LATEST: &str = "https://api.github.com/repos/domknez/haze/releases/latest";
 const SUMS: &str = "SHA256SUMS.txt";
+const SIGNATURE: &str = "SHA256SUMS.txt.sig";
+/// The public half of the key releases are signed with (`scripts/make-signing-key.sh`).
+const UPDATE_KEY: &str = "dc08f361e1ea51c6a698ec1bb4f4053c1636eb148037729a2d4a76afdba2eb82";
 
 #[derive(Clone, Debug)]
 pub struct Release {
@@ -154,11 +159,12 @@ pub struct Staged {
 pub fn stage(release: &Release, progress: &Arc<AtomicU32>) -> Result<Staged, String> {
     let target = target().ok_or("this copy of haze can't update itself")?;
     let (name, url) = release.package().ok_or("the release has no download for this platform")?;
-    let sums = agent(Some(Duration::from_secs(20)))
-        .get(release.asset(SUMS).ok_or("the release has no checksums")?)
-        .call()
-        .and_then(|r| r.into_body().read_to_string())
-        .map_err(|e| format!("checksums: {e}"))?;
+    let sums = fetch_small(release.asset(SUMS).ok_or("the release has no checksums")?).map_err(|e| format!("checksums: {e}"))?;
+    let signature = fetch_small(release.asset(SIGNATURE).ok_or("the release isn't signed")?).map_err(|e| format!("signature: {e}"))?;
+    if !signed(&sums, &signature, &public_key(UPDATE_KEY)?) {
+        return Err("the release's signature doesn't match: not installing it".into());
+    }
+    let sums = String::from_utf8(sums).map_err(|_| "the checksums aren't text")?;
     let expected = expected_sha256(&sums, &name).ok_or_else(|| format!("no checksum for {name}"))?;
 
     let dir = std::env::temp_dir().join(format!("haze-update-{}", release.version));
@@ -208,6 +214,28 @@ pub fn apply(staged: &Staged) -> Result<Restart, String> {
 /// [`stage`] then [`apply`] in one go (command line).
 pub fn install(release: &Release, progress: &Arc<AtomicU32>) -> Result<Restart, String> {
     apply(&stage(release, progress)?)
+}
+
+/// A small file of a release (checksums, signature).
+fn fetch_small(url: &str) -> Result<Vec<u8>, String> {
+    let response = agent(Some(Duration::from_secs(20))).get(url).call().map_err(|e| e.to_string())?;
+    response.into_body().with_config().limit(1 << 20).read_to_vec().map_err(|e| e.to_string())
+}
+
+fn from_hex(hex: &str) -> Option<Vec<u8>> {
+    (0..hex.len()).step_by(2).map(|i| hex.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok())).collect()
+}
+
+fn public_key(hex: &str) -> Result<[u8; 32], String> {
+    from_hex(hex).and_then(|b| b.try_into().ok()).ok_or_else(|| "the update key is malformed".into())
+}
+
+/// Whether `signature` is `key`'s Ed25519 signature of `sums`.
+fn signed(sums: &[u8], signature: &[u8], key: &[u8; 32]) -> bool {
+    let (Ok(key), Ok(signature)) = (ed25519_compact::PublicKey::from_slice(key), ed25519_compact::Signature::from_slice(signature)) else {
+        return false;
+    };
+    key.verify(sums, &signature).is_ok()
 }
 
 /// `sha256sum` output: `<hex>  <name>` per line.
@@ -402,6 +430,29 @@ mod tests {
         assert!(is_newer("0.2.1", "0.2.0"));
         assert!(!is_newer("0.2.0", "0.2.0"));
         assert!(!is_newer("0.1.9", "0.2.0"));
+    }
+
+    #[test]
+    fn the_update_key_is_a_key() {
+        assert!(public_key(UPDATE_KEY).is_ok_and(|k| ed25519_compact::PublicKey::from_slice(&k).is_ok()));
+    }
+
+    /// Made with `openssl pkeyutl -sign -rawin`, as the Release workflow signs.
+    #[test]
+    fn checks_the_signature_of_the_checksums() {
+        let key = public_key("0886358445d0e2bd1e44d74edce23f8aa17a4a5dac88948878dda8249e4eaf29").unwrap();
+        let signature = from_hex(concat!(
+            "146c83193fd0a79600bea245b37ca19c5d8f1c92a5f61f50991d171161edc5cc",
+            "a5d379bc21dd1e2b31db63647fba819a3b1efb04eeeaeb9f0fcae8ef4fcde80b"
+        ))
+        .unwrap();
+        let sums = b"abc  haze-9.9.9-macos.dmg\n";
+        assert!(signed(sums, &signature, &key));
+        assert!(!signed(b"abd  haze-9.9.9-macos.dmg\n", &signature, &key), "tampered");
+        assert!(!signed(sums, &signature[..63], &key), "cut short");
+        let mut other = key;
+        other[0] ^= 1;
+        assert!(!signed(sums, &signature, &other), "another key");
     }
 
     #[test]

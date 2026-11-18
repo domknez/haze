@@ -165,6 +165,17 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      # The self-updater installs only what this key signed (src/update.rs).
+      - name: Sign the checksums
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          test -n "$UPDATE_SIGNING_KEY" || { echo "UPDATE_SIGNING_KEY is not set (scripts/make-signing-key.sh)"; exit 1; }
+          umask 077
+          key=$(mktemp)
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          openssl pkeyutl -sign -rawin -inkey "$key" -in dist/SHA256SUMS.txt -out dist/SHA256SUMS.txt.sig
+          rm -f "$key"
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
