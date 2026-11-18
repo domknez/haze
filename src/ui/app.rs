@@ -125,8 +125,6 @@ pub struct App {
     pub form: Option<SourceForm>,
     pub pin: Option<super::views::pin::PinDialog>,
     pub toast: Option<(String, Instant)>,
-    /// Bumped when favourites or recents change.
-    pub marks_serial: u64,
     last_motion: Instant,
     last_pointer: Option<egui::Pos2>,
     /// The panels over the picture showed last frame (subtitles keep clear of them).
@@ -199,7 +197,6 @@ impl App {
             form: None,
             pin: None,
             toast: None,
-            marks_serial: 0,
             last_motion: Instant::now(),
             last_pointer: None,
             focus_search: false,
@@ -329,7 +326,6 @@ impl App {
         match &playing {
             Playing::Live { key } => {
                 self.marks.watched(&source, key);
-                self.marks_serial += 1;
                 self.prefs.update(|p| p.channel = Some(key.clone()));
             }
             Playing::Movie { key } | Playing::Episode { episode: crate::iptv::model::Episode { key, .. }, .. } => {
@@ -386,7 +382,7 @@ impl App {
     /// What the rail lists, worked out again only when something it depends on changed.
     pub fn refresh_list(&mut self) {
         let source = self.source_id();
-        self.browse.refresh(self.catalog.ready(), &self.marks, &source, self.marks_serial);
+        self.browse.refresh(self.catalog.ready(), &self.marks, &source);
     }
 
     /// Show the episodes of series `i`: the playlist lists them, or the provider is
@@ -465,7 +461,6 @@ impl App {
             crate::credentials::save(&source.id, &password);
             // Channels are known by their stream id now, not their link.
             self.marks.rekey(&source.id, crate::iptv::xtream::stream_id);
-            self.marks_serial += 1;
             if self.source().is_some_and(|s| s.id == source.id)
                 && let Some(key) = self.resume.as_deref().and_then(crate::iptv::xtream::stream_id)
             {
@@ -719,12 +714,10 @@ impl App {
             Act::ToggleFavorite(key) => {
                 let source = self.source_id();
                 self.marks.toggle_favorite(&source, &key);
-                self.marks_serial += 1;
             }
             Act::MoveFavorite(key, target, after) => {
                 let source = self.source_id();
                 self.marks.move_favorite(&source, &key, &target, after);
-                self.marks_serial += 1;
             }
             Act::Tab(t) => {
                 self.prefs.update(|p| p.tab = Some(t.key().to_string()));

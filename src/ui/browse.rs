@@ -177,7 +177,7 @@ impl Browse {
     }
 
     /// What the rail lists, worked out again only when something it depends on changed.
-    pub fn refresh(&mut self, catalog: Option<&Catalog>, marks: &Marks, source: &str, marks_serial: u64) {
+    pub fn refresh(&mut self, catalog: Option<&Catalog>, marks: &Marks, source: &str) {
         let Some(catalog) = catalog else {
             self.list.clear();
             return;
@@ -189,7 +189,7 @@ impl Browse {
             group: group.clone(),
             search: self.search.clone(),
             size: catalog.channels.len() + catalog.movies.len() + catalog.series.len(),
-            marks: marks_serial,
+            marks: marks.revision(),
             episodes,
         };
         if self.list_key.as_ref() == Some(&key) {
@@ -290,7 +290,7 @@ http://line.tv:80/series/user/pass/102.mkv
     }
 
     fn listed(b: &mut Browse, c: &Catalog) -> Vec<String> {
-        b.refresh(Some(c), &Marks::default(), "src", 0);
+        b.refresh(Some(c), &Marks::default(), "src");
         b.list.iter().map(|&i| c.channels[i].name.clone()).collect()
     }
 
@@ -345,7 +345,7 @@ http://line.tv:80/series/user/pass/102.mkv
     #[test]
     fn zaps_around_the_list() {
         let (mut b, c) = browsing(Tab::Live);
-        b.refresh(Some(&c), &Marks::default(), "src", 0);
+        b.refresh(Some(&c), &Marks::default(), "src");
         let live = |k: &str| Some(Playing::Live { key: c.channels.iter().find(|ch| ch.name == k).unwrap().key.clone() });
         let key = |k: &str| live(k).map(|p| p.key().to_string()).unwrap();
         assert_eq!(b.step(&c, Some(&key("News Two")), 1), live("Sport One"));
@@ -359,7 +359,7 @@ http://line.tv:80/series/user/pass/102.mkv
         let (mut b, c) = browsing(Tab::Series);
         b.open_series = Some(0);
         b.episodes = Load::Ready(c.series[0].episodes.clone());
-        b.refresh(Some(&c), &Marks::default(), "src", 0);
+        b.refresh(Some(&c), &Marks::default(), "src");
         let first = b.episode(&c, 0).unwrap();
         let second = b.next_episode(&c, &first).unwrap();
         assert_eq!(second, b.episode(&c, 1).unwrap());

@@ -157,7 +157,7 @@ listed in `.github/workflows/release.yml` makes it sign with a Developer ID and 
 ```
 src/
   iptv/      playlists (m3u), provider logins (xtream), guides (xmltv), HTTP, time
-  library.rs sources, catch-up URLs, favourites and recents
+  library/   sources, catch-up URLs, favourites, recents and progress
   media/     playback: demux → audio (drives the clock) and video (waits for it)
   output/    local sound card and AirPlay 1/2 (shared with dust)
   ui/        egui: the stage, glass panels, menus, the add-source dialog, GPU video
