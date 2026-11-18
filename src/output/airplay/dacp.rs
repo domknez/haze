@@ -5,9 +5,10 @@
 
 use crate::sync::Lock;
 use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// Process-wide DACP id, sent to receivers as `DACP-ID` / `Client-Instance`.
@@ -133,13 +134,38 @@ pub fn start(on_command: impl Fn(Remote) + Send + 'static) -> Result<Server, Str
         .name("dacp".into())
         .spawn(move || {
             // A connection per receiver, kept open: they reuse it for later presses.
+            let open = Arc::new(AtomicUsize::new(0));
             for stream in listener.incoming().flatten() {
                 log_debug!("dacp: connection from {:?}", stream.peer_addr().ok());
-                let _ = std::thread::Builder::new().name("dacp-conn".into()).spawn(move || handle(stream));
+                if open.load(Ordering::Acquire) >= MAX_CONNECTIONS {
+                    log_warn!("dacp: too many connections, refusing one");
+                    continue;
+                }
+                open.fetch_add(1, Ordering::AcqRel);
+                let done = open.clone();
+                let spawned = std::thread::Builder::new().name("dacp-conn".into()).spawn(move || {
+                    handle(stream);
+                    done.fetch_sub(1, Ordering::AcqRel);
+                });
+                if spawned.is_err() {
+                    open.fetch_sub(1, Ordering::AcqRel);
+                }
             }
         })
         .map_err(|e| e.to_string())?;
     Ok(Server)
+}
+
+/// Receivers keep one connection each; more than this is someone else.
+const MAX_CONNECTIONS: usize = 8;
+/// Longer request or header lines than this aren't a receiver's.
+const MAX_LINE: u64 = 4096;
+
+/// Read a line of at most [`MAX_LINE`] bytes; false at the end, on an error or on a
+/// longer line.
+fn read_line(reader: &mut impl BufRead, line: &mut String) -> bool {
+    line.clear();
+    matches!(reader.by_ref().take(MAX_LINE).read_line(line), Ok(n) if n > 0 && line.ends_with('\n'))
 }
 
 fn handle(stream: TcpStream) {
@@ -147,15 +173,19 @@ fn handle(stream: TcpStream) {
     let Ok(read) = stream.try_clone() else { return };
     let mut reader = BufReader::new(read);
     let mut writer = stream;
+    let (mut request, mut line) = (String::new(), String::new());
     // Keep-alive: receivers may send several requests on one connection.
     loop {
-        let mut request = String::new();
-        if reader.read_line(&mut request).unwrap_or(0) == 0 {
+        if !read_line(&mut reader, &mut request) {
             return;
         }
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap_or(0) > 0 && !line.trim_end().is_empty() {
-            line.clear();
+        loop {
+            if !read_line(&mut reader, &mut line) {
+                return;
+            }
+            if line.trim_end().is_empty() {
+                break;
+            }
         }
         let path = request.split_whitespace().nth(1).unwrap_or("");
         let command = parse(path);
@@ -174,6 +204,18 @@ fn handle(stream: TcpStream) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_lines_up_to_a_limit() {
+        let long = format!("GET /{} HTTP/1.1\r\n", "x".repeat(MAX_LINE as usize));
+        let mut line = String::new();
+        let mut ok = BufReader::new("GET /ctrl-int/1/playpause HTTP/1.1\r\nActive-Remote: 1\r\n\r\n".as_bytes());
+        assert!(read_line(&mut ok, &mut line) && line.starts_with("GET /ctrl-int"));
+        assert!(read_line(&mut ok, &mut line) && line.starts_with("Active-Remote"));
+        assert!(read_line(&mut ok, &mut line) && line.trim_end().is_empty());
+        assert!(!read_line(&mut ok, &mut line), "the end");
+        assert!(!read_line(&mut BufReader::new(long.as_bytes()), &mut line), "too long");
+    }
 
     #[test]
     fn parses_receiver_requests() {

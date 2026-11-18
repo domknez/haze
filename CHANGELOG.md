@@ -6,6 +6,12 @@
   and its place is no longer lost after ten seconds
 - Passwords of Xtream logins no longer end up in the log; a keychain that can't be
   read no longer loses the other sources' passwords on the next save
+- Zapping waits for the channel before to let go of the provider and the speaker
+- A live channel that keeps ending is tried a few times, not over and over
+- Sound comes back on this computer's default output after the device in use is
+  unplugged
+- Settings, sources, favourites and progress are saved whole or not at all; a file
+  that can't be read is kept aside instead of being overwritten
 
 ## 0.1.1 (2026-11-05)
 
