@@ -27,9 +27,7 @@ pub fn run(
     has_audio: bool,
 ) {
     let mut frame = ffmpeg::frame::Video::empty();
-    let mut downloaded = ffmpeg::frame::Video::empty();
-    let mut converted = ffmpeg::frame::Video::empty();
-    let mut scaler: Option<(ffmpeg::software::scaling::Context, (Pixel, u32, u32))> = None;
+    let mut converter = Converter::default();
     let mut ending = false;
     let mut presenter = Presenter { shared: shared.clone(), has_audio, shown: false, skipped: 0, waiting_since: None };
 
@@ -59,41 +57,7 @@ pub fn run(
         }
         while decoder.receive_frame(&mut frame).is_ok() {
             let pts = frame.timestamp().or(frame.pts()).map_or(0.0, |t| t as f64 * f64::from(time_base));
-            // A picture decoded on the GPU comes back to memory (as NV12) first.
-            let frame = match super::hwaccel::download(&frame, &mut downloaded) {
-                Some(true) => &downloaded,
-                Some(false) => continue,
-                None => &frame,
-            };
-            let picture = match VideoFrame::from_decoded(frame, pts) {
-                Some(p) => p,
-                None => {
-                    // Other pixel formats (10-bit, 4:2:2, …) become 8-bit 4:2:0.
-                    let key = (frame.format(), frame.width(), frame.height());
-                    if scaler.as_ref().is_none_or(|(_, k)| *k != key) {
-                        scaler = ffmpeg::software::scaling::Context::get(
-                            key.0,
-                            key.1,
-                            key.2,
-                            Pixel::YUV420P,
-                            key.1,
-                            key.2,
-                            ffmpeg::software::scaling::Flags::FAST_BILINEAR,
-                        )
-                        .map_err(|e| log_warn!("can't convert {:?} pictures: {e}", key.0))
-                        .ok()
-                        .map(|s| (s, key));
-                    }
-                    let Some((s, _)) = &mut scaler else { continue };
-                    if s.run(frame, &mut converted).is_err() {
-                        continue;
-                    }
-                    converted.set_color_space(frame.color_space());
-                    converted.set_color_range(frame.color_range());
-                    let Some(p) = VideoFrame::from_decoded(&converted, pts) else { continue };
-                    p
-                }
-            };
+            let Some(picture) = converter.picture(&frame, pts) else { continue };
             presenter.present(picture);
             if shared.stopped() {
                 return;
@@ -103,6 +67,83 @@ pub fn run(
             shared.finished();
         }
     }
+}
+
+/// Brings decoded frames to what the screen takes: back from the GPU (as NV12), and
+/// other pixel formats (10-bit, 4:2:2, …) to 8-bit 4:2:0.
+struct Converter {
+    downloaded: ffmpeg::frame::Video,
+    converted: ffmpeg::frame::Video,
+    /// The scaler, and the format and size it was made for.
+    scaler: Option<(ffmpeg::software::scaling::Context, (Pixel, u32, u32))>,
+}
+
+impl Default for Converter {
+    fn default() -> Self {
+        Converter { downloaded: ffmpeg::frame::Video::empty(), converted: ffmpeg::frame::Video::empty(), scaler: None }
+    }
+}
+
+impl Converter {
+    fn picture(&mut self, frame: &ffmpeg::frame::Video, pts: f64) -> Option<VideoFrame> {
+        let frame = match super::hwaccel::download(frame, &mut self.downloaded) {
+            Some(true) => &self.downloaded,
+            Some(false) => return None,
+            None => frame,
+        };
+        if let Some(picture) = VideoFrame::from_decoded(frame, pts) {
+            return Some(picture);
+        }
+        let key = (frame.format(), frame.width(), frame.height());
+        if self.scaler.as_ref().is_none_or(|(_, k)| *k != key) {
+            let flags = ffmpeg::software::scaling::Flags::FAST_BILINEAR;
+            self.scaler = ffmpeg::software::scaling::Context::get(key.0, key.1, key.2, Pixel::YUV420P, key.1, key.2, flags)
+                .map_err(|e| log_warn!("can't convert {:?} pictures: {e}", key.0))
+                .ok()
+                .map(|s| (s, key));
+        }
+        let (scaler, _) = self.scaler.as_mut()?;
+        scaler.run(frame, &mut self.converted).ok()?;
+        self.converted.set_color_space(frame.color_space());
+        self.converted.set_color_range(frame.color_range());
+        VideoFrame::from_decoded(&self.converted, pts)
+    }
+}
+
+/// What to do with a frame `ahead` seconds ahead of the clock (behind when negative).
+#[derive(Debug, PartialEq)]
+enum Timing {
+    Show,
+    /// Not yet: look again after this long.
+    Wait(Duration),
+    /// Too late: drop it (`skipped` frames in a row were dropped before it).
+    Skip,
+    /// The stream jumped and nothing else keeps the time: set the clock to it, show.
+    Resync,
+}
+
+fn timing(ahead: f64, has_audio: bool, skipped: u32) -> Timing {
+    if ahead > JUMP {
+        return match has_audio {
+            // Far ahead for good: the sound isn't coming along, show it anyway.
+            true if ahead > JUMP * 4.0 => Timing::Show,
+            // Wait for the sound to jump too; meanwhile keep this one.
+            true => Timing::Wait(Duration::from_millis(10)),
+            false => Timing::Resync,
+        };
+    }
+    if ahead > 0.002 {
+        return Timing::Wait(Duration::from_secs_f64(ahead.min(0.01)));
+    }
+    if ahead < -LATE {
+        if ahead < -JUMP && !has_audio {
+            return Timing::Resync;
+        }
+        if skipped + 1 < SHOW_EVERY {
+            return Timing::Skip;
+        }
+    }
+    Timing::Show
 }
 
 struct Presenter {
@@ -151,36 +192,49 @@ impl Presenter {
                 continue;
             };
             self.waiting_since = None;
-            let ahead = frame.pts - now;
-            if ahead > JUMP {
-                if self.has_audio {
-                    // Wait for the sound to jump too; meanwhile keep this one.
-                    std::thread::sleep(Duration::from_millis(10));
-                    if ahead > JUMP * 4.0 {
-                        break;
-                    }
-                    continue;
+            match timing(frame.pts - now, self.has_audio, self.skipped) {
+                Timing::Wait(d) => std::thread::sleep(d),
+                Timing::Skip => {
+                    self.skipped += 1;
+                    return;
                 }
-                self.shared.clock.set(frame.pts);
-                break;
-            }
-            if ahead > 0.002 {
-                std::thread::sleep(Duration::from_secs_f64(ahead.min(0.01)));
-                continue;
-            }
-            if ahead < -LATE {
-                if ahead < -JUMP && !self.has_audio {
+                Timing::Resync => {
                     self.shared.clock.set(frame.pts);
                     break;
                 }
-                self.skipped += 1;
-                if self.skipped < SHOW_EVERY {
-                    return;
-                }
+                Timing::Show => break,
             }
-            break;
         }
         self.skipped = 0;
         self.shared.publish(frame);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frames_wait_show_or_skip_against_the_clock() {
+        assert_eq!(timing(0.0, true, 0), Timing::Show);
+        assert_eq!(timing(0.005, true, 0), Timing::Wait(Duration::from_secs_f64(0.005)));
+        assert_eq!(timing(1.0, true, 0), Timing::Wait(Duration::from_millis(10)), "waits in small steps");
+        assert_eq!(timing(-0.1, true, 0), Timing::Show, "a little late still shows");
+        assert_eq!(timing(-0.5, true, 0), Timing::Skip);
+    }
+
+    #[test]
+    fn a_slow_machine_still_shows_one_frame_in_a_few() {
+        assert_eq!(timing(-0.5, true, SHOW_EVERY - 2), Timing::Skip);
+        assert_eq!(timing(-0.5, true, SHOW_EVERY - 1), Timing::Show);
+    }
+
+    #[test]
+    fn a_jump_in_the_stream_waits_for_the_sound_or_resets_the_clock() {
+        assert_eq!(timing(JUMP + 1.0, true, 0), Timing::Wait(Duration::from_millis(10)));
+        assert_eq!(timing(JUMP * 5.0, true, 0), Timing::Show);
+        assert_eq!(timing(JUMP + 1.0, false, 0), Timing::Resync);
+        assert_eq!(timing(-JUMP - 1.0, false, 0), Timing::Resync);
+        assert_eq!(timing(-JUMP - 1.0, true, 0), Timing::Skip, "the sound keeps the time");
     }
 }
