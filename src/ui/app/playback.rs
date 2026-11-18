@@ -38,7 +38,7 @@ impl App {
     /// one connection); None when it can't be played.
     fn open(&mut self, ctx: &egui::Context, playing: &Playing) -> Option<Player> {
         let request = self.request_for(playing)?;
-        log_info!("playing {}", request.url.split('?').next().unwrap_or(""));
+        log_info!("playing {}", crate::iptv::http::redact(&request.url));
         self.keep_progress();
         self.session.player = None;
         self.video.clear();

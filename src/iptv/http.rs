@@ -27,6 +27,21 @@ pub enum Error {
     Unexpected(String),
 }
 
+/// `url` safe for the log: its host and the file it names, nothing between (an
+/// Xtream link carries the user name and password in its path) and no query.
+pub fn redact(url: &str) -> String {
+    let url = url.split(['?', '#']).next().unwrap_or(url);
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.rsplit(['/', '\\']).next().unwrap_or(url).to_string();
+    };
+    let host = rest.split('/').next().unwrap_or(rest).rsplit('@').next().unwrap_or(rest);
+    match rest.split_once('/').map(|(_, path)| path.rsplit('/').next().unwrap_or(path)) {
+        Some(file) if rest.matches('/').count() > 1 => format!("{scheme}://{host}/…/{file}"),
+        Some(file) => format!("{scheme}://{host}/{file}"),
+        None => format!("{scheme}://{host}"),
+    }
+}
+
 pub fn get(url: &str) -> Result<ureq::http::Response<ureq::Body>, Error> {
     Ok(AGENT.get(url).call()?)
 }
@@ -101,6 +116,14 @@ pub fn decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logged_links_keep_no_secrets() {
+        assert_eq!(redact("http://tv.example:8080/live/me/secret/91651.ts"), "http://tv.example:8080/…/91651.ts");
+        assert_eq!(redact("https://me:pw@cdn.example/a.m3u8?token=x"), "https://cdn.example/a.m3u8");
+        assert_eq!(redact("http://cdn.example"), "http://cdn.example");
+        assert_eq!(redact("/Users/me/Movies/film.mkv"), "film.mkv");
+    }
     use std::io::Write;
 
     #[test]

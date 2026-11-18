@@ -37,11 +37,12 @@ impl Logins {
         serde_json::json!(self.0).to_string()
     }
 
-    /// Every login in the item; fields that aren't text are skipped.
-    fn from_json(text: &str) -> Logins {
-        let v: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
-        let logins = v.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())));
-        Logins(logins.collect())
+    /// Every login in the item (fields that aren't text are skipped); None when the
+    /// item isn't a JSON object.
+    fn from_json(text: &str) -> Option<Logins> {
+        let v: serde_json::Value = serde_json::from_str(text).ok()?;
+        let logins = v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())));
+        Some(Logins(logins.collect()))
     }
 }
 
@@ -53,21 +54,30 @@ fn entry_for(account: &str) -> Option<keyring_core::Entry> {
     keyring_core::Entry::new(SERVICE, account).ok()
 }
 
-/// Run `f` on the logins, reading them from the keychain the first time.
-fn with_logins<R>(f: impl FnOnce(&mut Logins) -> R) -> R {
+/// Run `f` on the logins, reading them from the keychain the first time. None when
+/// they can't be read (access denied, the store locked): then nothing is written
+/// either, or every secret that couldn't be read would be overwritten. The next
+/// call tries again.
+fn with_logins<R>(f: impl FnOnce(&mut Logins) -> R) -> Option<R> {
     let mut logins = LOGINS.locked();
-    f(logins.get_or_insert_with(read))
+    if logins.is_none() {
+        match read() {
+            Ok(read) => *logins = Some(read),
+            Err(e) => {
+                log_warn!("could not read logins from the keychain: {e}");
+                return None;
+            }
+        }
+    }
+    logins.as_mut().map(f)
 }
 
-fn read() -> Logins {
-    let Some(entry) = entry_for(ACCOUNT) else { return Logins::default() };
+fn read() -> Result<Logins, String> {
+    let Some(entry) = entry_for(ACCOUNT) else { return Err("no keychain".into()) };
     match entry.get_password() {
-        Ok(text) => Logins::from_json(&text),
-        Err(keyring_core::Error::NoEntry) => Logins::default(),
-        Err(e) => {
-            log_warn!("could not read logins from the keychain: {e}");
-            Logins::default()
-        }
+        Ok(text) => Logins::from_json(&text).ok_or_else(|| "the stored logins aren't readable".into()),
+        Err(keyring_core::Error::NoEntry) => Ok(Logins::default()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -83,18 +93,21 @@ fn write(logins: &Logins) {
 /// Change the logins and save them (only if they changed: every write to the
 /// keychain may ask for access again).
 fn update(f: impl FnOnce(&mut Logins)) {
-    with_logins(|logins| {
+    let saved = with_logins(|logins| {
         let before = logins.clone();
         f(logins);
         if *logins != before {
             write(logins);
         }
     });
+    if saved.is_none() {
+        log_warn!("a password was not saved: the keychain couldn't be read");
+    }
 }
 
 /// The stored secret of source `id`, if any.
 pub fn load(id: &str) -> Option<String> {
-    with_logins(|l| l.0.get(id).cloned())
+    with_logins(|l| l.0.get(id).cloned()).flatten()
 }
 
 pub fn save(id: &str, secret: &str) {
@@ -116,9 +129,11 @@ mod tests {
     #[test]
     fn logins_round_trip() {
         let both = Logins([("a1".to_string(), "pw".to_string()), ("b2".to_string(), "x\"y".to_string())].into());
-        assert_eq!(Logins::from_json(&both.to_json()), both);
-        assert_eq!(Logins::from_json("not json"), Logins::default());
-        assert_eq!(Logins::from_json(r#"{"a":"1","b":null}"#).0.len(), 1);
+        assert_eq!(Logins::from_json(&both.to_json()), Some(both));
+        assert_eq!(Logins::from_json(r#"{"a":"1","b":null}"#).map(|l| l.0.len()), Some(1));
+        // Not readable is not empty: saving over it would lose every secret in it.
+        assert_eq!(Logins::from_json("not json"), None);
+        assert_eq!(Logins::from_json("[]"), None);
     }
 
     #[test]
