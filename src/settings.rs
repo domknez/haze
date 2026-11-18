@@ -17,6 +17,19 @@ pub fn dir() -> Option<PathBuf> {
     Some(base.join("haze"))
 }
 
+/// Write `contents` to `path` whole or not at all: into a file beside it first, then
+/// put in its place, so a crash halfway leaves the old file rather than half a new one.
+pub fn save_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut part = path.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    std::fs::write(&part, contents)?;
+    std::fs::rename(&part, path)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Appearance {
     System,
@@ -116,10 +129,7 @@ impl Prefs {
             return;
         }
         let Some(p) = &self.file else { return };
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Err(e) = std::fs::write(p, merge(&read(p), &changed)) {
+        if let Err(e) = save_file(p, merge(&read(p), &changed).as_bytes()) {
             log_warn!("could not save settings to {}: {e}", p.display());
         }
     }

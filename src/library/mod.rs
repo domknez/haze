@@ -23,19 +23,25 @@ fn settings_file(name: &str) -> Option<PathBuf> {
     crate::settings::dir().map(|d| d.join(name))
 }
 
-/// The JSON in `file`; null when there's none or it doesn't parse.
+/// The JSON in `file`; null when there's none. One that doesn't parse is kept aside
+/// as `<name>.unreadable` (and logged) before anything is saved over it.
 fn read_json(file: Option<&Path>) -> Value {
-    file.and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    let Some(p) = file else { return Value::Null };
+    let Ok(text) = std::fs::read_to_string(p) else { return Value::Null };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        let mut aside = p.as_os_str().to_owned();
+        aside.push(".unreadable");
+        log_warn!("{} is unreadable ({e}); kept as {}", p.display(), PathBuf::from(&aside).display());
+        let _ = std::fs::rename(p, aside);
+        Value::Null
+    })
 }
 
-/// Write `value` to `file`, making its folder first.
+/// Write `value` to `file` (see [`crate::settings::save_file`]).
 fn write_json(file: Option<&Path>, value: &Value) {
     let Some(p) = file else { return };
-    if let Some(d) = p.parent() {
-        let _ = std::fs::create_dir_all(d);
-    }
     let text = serde_json::to_string_pretty(value).unwrap_or_default();
-    if let Err(e) = std::fs::write(p, text) {
+    if let Err(e) = crate::settings::save_file(p, text.as_bytes()) {
         log_warn!("could not save {}: {e}", p.display());
     }
 }
@@ -227,6 +233,19 @@ pub fn fetch_guide(url: &str, channels: &[Channel]) -> Result<Guide, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreadable_file_is_kept_aside_not_lost() {
+        let dir = std::env::temp_dir().join(format!("haze-test-{}", new_id()));
+        let file = dir.join("sources.json");
+        write_json(Some(&file), &json!([{"id": "a"}]));
+        assert_eq!(read_json(Some(&file)), json!([{"id": "a"}]));
+        std::fs::write(&file, "[{\"id\": ").unwrap();
+        assert_eq!(read_json(Some(&file)), Value::Null);
+        assert_eq!(std::fs::read_to_string(dir.join("sources.json.unreadable")).unwrap(), "[{\"id\": ");
+        assert!(!file.exists() && !dir.join("sources.json.part").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn an_xtream_playlist_link_becomes_a_login() {
