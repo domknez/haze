@@ -97,6 +97,8 @@ impl Drain {
 
 pub struct LocalSink {
     _stream: cpal::Stream,
+    /// Raised when the device went away (unplugged), so the player opens another.
+    gone: Arc<AtomicBool>,
     feed: Feed,
     resampler: Resampler<f32>,
     rate: u32,
@@ -120,15 +122,17 @@ impl LocalSink {
         let channels = config.channels() as usize;
         // ~200 ms of stereo audio at device rate.
         let (feed, drain) = ring((rate as usize * 2 / 5) & !1, volume);
+        let gone = Arc::new(AtomicBool::new(false));
+        let g = gone.clone();
         let stream = match config.sample_format() {
-            SampleFormat::F32 => build::<f32>(&device, config.into(), channels, drain),
-            SampleFormat::I16 => build::<i16>(&device, config.into(), channels, drain),
-            SampleFormat::U16 => build::<u16>(&device, config.into(), channels, drain),
-            SampleFormat::I32 => build::<i32>(&device, config.into(), channels, drain),
+            SampleFormat::F32 => build::<f32>(&device, config.into(), channels, drain, g),
+            SampleFormat::I16 => build::<i16>(&device, config.into(), channels, drain, g),
+            SampleFormat::U16 => build::<u16>(&device, config.into(), channels, drain, g),
+            SampleFormat::I32 => build::<i32>(&device, config.into(), channels, drain, g),
             f => return Err(format!("Unsupported sample format {f}")),
         }?;
         stream.play().map_err(|e| e.to_string())?;
-        Ok(Self { _stream: stream, feed, resampler: Resampler::new(RATE, rate), rate, scratch: Vec::new(), resampled: Vec::new() })
+        Ok(Self { _stream: stream, gone, feed, resampler: Resampler::new(RATE, rate), rate, scratch: Vec::new(), resampled: Vec::new() })
     }
 }
 
@@ -137,10 +141,15 @@ fn build<T: SizedSample + FromSample<f32>>(
     config: cpal::StreamConfig,
     channels: usize,
     mut drain: Drain,
+    gone: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, String> {
-    device
-        .build_output_stream(config, move |out: &mut [T], _| drain.fill(out, channels), |e| log_error!("audio stream: {e}"), None)
-        .map_err(|e| e.to_string())
+    let error = move |e: cpal::Error| {
+        log_error!("audio stream: {e}");
+        if matches!(e.kind(), cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated) {
+            gone.store(true, Ordering::Release);
+        }
+    };
+    device.build_output_stream(config, move |out: &mut [T], _| drain.fill(out, channels), error, None).map_err(|e| e.to_string())
 }
 
 impl Sink for LocalSink {
@@ -166,6 +175,10 @@ impl Sink for LocalSink {
             self.resampled = out;
         }
         samples.len()
+    }
+
+    fn healthy(&self) -> bool {
+        !self.gone.load(Ordering::Acquire)
     }
 
     fn pending_frames(&self) -> usize {
