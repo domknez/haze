@@ -90,6 +90,9 @@ struct Demuxer<'a> {
 fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Settings, commands: &Receiver<DemuxCmd>) -> Result<(), String> {
     let Some(mut demuxer) = Demuxer::open(shared, request)? else { return Ok(()) };
     demuxer.start(settings)?;
+    if let Some(at) = request.start_at {
+        demuxer.seek(demuxer.info_start() + at);
+    }
     loop {
         if shared.stopped() {
             return Ok(());
@@ -186,14 +189,22 @@ impl<'a> Demuxer<'a> {
                 .collect()
         };
         let duration = self.input.duration();
+        // SAFETY: plain read of a field of the open input.
+        let start = unsafe { (*self.input.as_ptr()).start_time };
         let audio_tracks = tracks(Type::Audio, &|_| true);
         StreamInfo {
             duration: (duration > 0).then(|| duration as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)),
+            start: (start != ffmpeg::ffi::AV_NOPTS_VALUE).then(|| start as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)),
             audio_track: audio_tracks.iter().position(|t| Some(t.stream) == self.audio_index),
             audio_tracks,
             subtitle_tracks: tracks(Type::Subtitle, &|s| subtitle::is_text(s.parameters().id())),
             ..StreamInfo::default()
         }
+    }
+
+    /// The stream time the stream starts at (0 when it doesn't say).
+    fn info_start(&self) -> f64 {
+        self.shared.info.locked().start.unwrap_or(0.0)
     }
 
     /// With no sound, commands for the output have nowhere to go.

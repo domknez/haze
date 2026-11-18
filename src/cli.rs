@@ -5,16 +5,20 @@ use crate::output::Output;
 use std::time::{Duration, Instant};
 
 pub enum Command {
-    /// Play a stream for a few seconds and report what it is.
+    /// Play a stream for a few seconds (from a point in it, for a recording) and
+    /// report what it is.
     Probe {
         url: String,
         seconds: u64,
+        from: Option<f64>,
     },
     /// Is a newer release out, and can this copy install it.
     CheckUpdate,
     /// Install the latest release in place (no relaunch).
     SelfUpdate,
     Help,
+    /// Something that isn't a command: usage, and a failure.
+    Unknown,
 }
 
 impl Command {
@@ -22,53 +26,82 @@ impl Command {
         let first = args.next()?;
         Some(match first.as_str() {
             "probe" => match args.next() {
-                Some(url) => Command::Probe { url, seconds: args.next().and_then(|s| s.parse().ok()).unwrap_or(8) },
-                None => Command::Help,
+                Some(url) => {
+                    let seconds = args.next().and_then(|s| s.parse().ok()).unwrap_or(8);
+                    Command::Probe { url, seconds, from: args.next().and_then(|s| s.parse().ok()) }
+                }
+                None => Command::Unknown,
             },
             "check-update" => Command::CheckUpdate,
             "self-update" => Command::SelfUpdate,
-            _ => Command::Help,
+            "help" | "--help" | "-h" => Command::Help,
+            _ => Command::Unknown,
         })
     }
 
-    pub fn run(self) {
+    /// Run the command; false when it failed.
+    pub fn run(self) -> bool {
         match self {
-            Command::Probe { url, seconds } => probe(&url, seconds),
+            Command::Probe { url, seconds, from } => probe(&url, seconds, from),
             Command::CheckUpdate => check_update(),
             Command::SelfUpdate => self_update(),
-            Command::Help => println!("usage: haze [probe <url> [seconds] | check-update | self-update]"),
+            Command::Help => {
+                println!("{USAGE}");
+                true
+            }
+            Command::Unknown => {
+                eprintln!("{USAGE}");
+                false
+            }
         }
     }
 }
 
-fn check_update() {
+const USAGE: &str = "usage: haze [probe <url> [seconds] [from] | check-update | self-update]";
+
+fn check_update() -> bool {
     match crate::update::check() {
         Ok(Some(release)) => {
             println!("haze {} is available (you have {})", release.version, crate::update::CURRENT);
             println!("installs in place: {}", crate::update::can_install(&release));
         }
         Ok(None) => println!("haze {} is the latest version", crate::update::CURRENT),
-        Err(e) => println!("couldn't check for updates: {e}"),
+        Err(e) => {
+            eprintln!("couldn't check for updates: {e}");
+            return false;
+        }
     }
+    true
 }
 
-fn self_update() {
+fn self_update() -> bool {
     let release = match crate::update::check() {
         Ok(Some(release)) => release,
-        Ok(None) => return println!("haze {} is the latest version", crate::update::CURRENT),
-        Err(e) => return println!("couldn't check for updates: {e}"),
+        Ok(None) => {
+            println!("haze {} is the latest version", crate::update::CURRENT);
+            return true;
+        }
+        Err(e) => {
+            eprintln!("couldn't check for updates: {e}");
+            return false;
+        }
     };
     let progress = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
     match crate::update::install(&release, &progress) {
         Ok(_) => println!("installed haze {}", release.version),
-        Err(e) => println!("update failed: {e}"),
+        Err(e) => {
+            eprintln!("update failed: {e}");
+            return false;
+        }
     }
+    true
 }
 
-fn probe(url: &str, seconds: u64) {
+/// Play `url` for `seconds` and say what happens; false when it fails.
+fn probe(url: &str, seconds: u64, from: Option<f64>) -> bool {
     // A file on disk is a recording; anything else is taken for a live channel.
     let live = !std::path::Path::new(url).is_file();
-    let request = Request { url: url.to_string(), user_agent: None, referrer: None, live };
+    let request = Request { url: url.to_string(), user_agent: None, referrer: None, live, start_at: from };
     let player = Player::open(request, Output::Local, 0.3, || {});
     let start = Instant::now();
     let mut last = (0, Status::Opening);
@@ -106,4 +139,5 @@ fn probe(url: &str, seconds: u64) {
         }
     }
     println!("{:#?}", player.info());
+    !matches!(player.status(), Status::Failed(_))
 }

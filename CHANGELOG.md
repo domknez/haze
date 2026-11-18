@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A movie or an episode carried on from where it was left shows the right position,
+  and its place is no longer lost after ten seconds
+- Passwords of Xtream logins no longer end up in the log; a keychain that can't be
+  read no longer loses the other sources' passwords on the next save
+
 ## 0.1.1 (2026-11-05)
 
 - Full screen on macOS is really full screen: the menu bar, the title bar and the Dock

@@ -22,7 +22,9 @@ fn main() -> eframe::Result {
     log::install_panic_hook();
     match cli::Command::parse(std::env::args().skip(1)) {
         Some(command) => {
-            command.run();
+            if !command.run() {
+                std::process::exit(1);
+            }
             Ok(())
         }
         None => ui::run(),

@@ -27,6 +27,8 @@ pub struct Request {
     pub referrer: Option<String>,
     /// A live channel (no seeking, reconnect on drop-outs) rather than a recording.
     pub live: bool,
+    /// Where to begin, in seconds from the start: a movie carried on.
+    pub start_at: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +57,8 @@ pub struct StreamInfo {
     pub audio_track: Option<usize>,
     /// Length in seconds, for recordings.
     pub duration: Option<f64>,
+    /// The stream time the stream starts at, when it says: positions count from here.
+    pub start: Option<f64>,
     /// Subtitle tracks with text in them.
     pub subtitle_tracks: Vec<Track>,
     /// Index into `subtitle_tracks` of the one shown, if any.

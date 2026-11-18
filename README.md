@@ -170,7 +170,7 @@ src/
 - **Settings** live in `~/Library/Application Support/haze/` (macOS),
   `%APPDATA%\haze\` (Windows) or `~/.config/haze/` (Linux): `settings.conf`,
   `sources.json`, `marks.json`, `progress.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
-- `haze probe <url> [seconds]` plays a stream without the window and reports what it is
+- `haze probe <url> [seconds] [from]` plays a stream (a recording from `from` seconds in) without the window and reports what it is
   and how it plays, with its subtitles if it has any (`HAZE_LOG=trace` adds ffmpeg's
   own messages);
   `HAZE_NO_HWACCEL=1` decodes in software.

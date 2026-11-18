@@ -17,27 +17,35 @@ impl App {
         match playing {
             Playing::Live { key } => {
                 let c = catalog.channels.iter().find(|c| &c.key == key)?;
-                Some(Request { url: c.url.clone(), user_agent: c.user_agent.clone(), referrer: c.referrer.clone(), live: true })
+                Some(Request {
+                    url: c.url.clone(),
+                    user_agent: c.user_agent.clone(),
+                    referrer: c.referrer.clone(),
+                    live: true,
+                    start_at: None,
+                })
             }
             Playing::Catchup { key, programme } => {
                 let c = catalog.channels.iter().find(|c| &c.key == key)?;
                 let login = self.source().and_then(Source::login);
                 let offset = catalog.account.as_ref().map_or(0, |a| a.server_offset);
                 let url = library::catchup_url(c, programme, login.as_ref(), offset)?;
-                Some(Request { url, user_agent: c.user_agent.clone(), referrer: c.referrer.clone(), live: false })
+                Some(Request { url, user_agent: c.user_agent.clone(), referrer: c.referrer.clone(), live: false, start_at: None })
             }
             Playing::Movie { key } => {
                 let m = catalog.movies.iter().find(|m| &m.key == key)?;
-                Some(Request { url: m.url.clone(), user_agent: None, referrer: None, live: false })
+                Some(Request { url: m.url.clone(), user_agent: None, referrer: None, live: false, start_at: None })
             }
-            Playing::Episode { episode, .. } => Some(Request { url: episode.url.clone(), user_agent: None, referrer: None, live: false }),
+            Playing::Episode { episode, .. } => {
+                Some(Request { url: episode.url.clone(), user_agent: None, referrer: None, live: false, start_at: None })
+            }
         }
     }
 
     /// A player for `playing`, opened once the old one stopped (providers often allow
     /// one connection); None when it can't be played.
-    fn open(&mut self, ctx: &egui::Context, playing: &Playing) -> Option<Player> {
-        let request = self.request_for(playing)?;
+    fn open(&mut self, ctx: &egui::Context, playing: &Playing, start_at: Option<f64>) -> Option<Player> {
+        let request = Request { start_at, ..self.request_for(playing)? };
         log_info!("playing {}", crate::iptv::http::redact(&request.url));
         self.keep_progress();
         self.session.player = None;
@@ -53,23 +61,21 @@ impl App {
     }
 
     pub fn play(&mut self, ctx: &egui::Context, playing: Playing) {
-        let Some(player) = self.open(ctx, &playing) else {
+        let source = self.source_id();
+        let resume = match &playing {
+            Playing::Movie { key } | Playing::Episode { episode: Episode { key, .. }, .. } => self.progress.resume_at(&source, key),
+            Playing::Live { .. } | Playing::Catchup { .. } => None,
+        };
+        let Some(player) = self.open(ctx, &playing, resume) else {
             self.show_toast("That can't be played");
             return;
         };
-        let source = self.source_id();
-        match &playing {
-            Playing::Live { key } => {
-                self.marks.watched(&source, key);
-                self.prefs.update(|p| p.channel = Some(key.clone()));
-            }
-            Playing::Movie { key } | Playing::Episode { episode: Episode { key, .. }, .. } => {
-                if let Some(at) = self.progress.resume_at(&source, key) {
-                    player.seek(at);
-                    self.show_toast(&format!("Carrying on from {} (← goes back)", crate::ui::views::duration_text(at)));
-                }
-            }
-            Playing::Catchup { .. } => {}
+        if let Playing::Live { key } = &playing {
+            self.marks.watched(&source, key);
+            self.prefs.update(|p| p.channel = Some(key.clone()));
+        }
+        if let Some(at) = resume {
+            self.show_toast(&format!("Carrying on from {} (← goes back)", crate::ui::views::duration_text(at)));
         }
         self.progress_at = Instant::now();
         self.session.start(playing, player);
@@ -89,7 +95,7 @@ impl App {
     /// Open what plays again, after the provider dropped it.
     fn reopen(&mut self, ctx: &egui::Context) {
         if let Some(playing) = self.session.playing.clone()
-            && let Some(player) = self.open(ctx, &playing)
+            && let Some(player) = self.open(ctx, &playing, None)
         {
             self.session.restart(player);
         }
@@ -236,8 +242,10 @@ impl App {
         let Some(player) = &self.session.player else { return };
         let (serial, frame) = player.frame();
         let (notice, status, duration) = (player.take_notice(), player.status(), player.info().duration);
+        // Positions count from where the stream starts; a stream that doesn't say
+        // starts at its first picture.
         if self.session.start_pts.is_none() {
-            self.session.start_pts = frame.as_ref().map(|f| f.pts);
+            self.session.start_pts = frame.as_ref().map(|f| player.info().start.unwrap_or(f.pts));
         }
         self.video.set_frame(serial, frame);
         if let Some(notice) = notice {
