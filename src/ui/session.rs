@@ -42,7 +42,7 @@ const RETRIES: u32 = 5;
 pub struct Session {
     pub player: Option<Player>,
     pub playing: Option<Playing>,
-    /// Stream time of the first frame of a recording, so positions start at 0.
+    /// Stream time positions count from (where the stream starts), so they start at 0.
     pub start_pts: Option<f64>,
     /// Times the live channel was opened again since it last played.
     retries: u32,
@@ -94,24 +94,24 @@ impl Session {
         self.player.as_ref().is_some_and(Player::paused)
     }
 
-    /// What `status` calls for at `now`. A live channel that fails is opened again,
-    /// waiting a little longer each time; one that ends is opened again at once.
+    /// What `status` calls for at `now`. A live channel that fails or ends is opened
+    /// again, waiting a little longer each time, until it has been tried a few times
+    /// without playing: a provider isn't asked for a dead stream over and over.
     pub fn next(&mut self, status: &Status, now: Instant) -> Next {
         match status {
-            Status::Failed(e) if self.live() && self.retries < RETRIES => {
+            Status::Failed(_) | Status::Ended if self.live() && self.retries < RETRIES => {
                 let at = *self.retry_at.get_or_insert_with(|| now + Duration::from_secs(1 + u64::from(self.retries)));
                 if now < at {
                     return Next::Wait(at);
                 }
-                log_info!("reconnecting ({e})");
+                match status {
+                    Status::Failed(e) => log_info!("reconnecting ({e})"),
+                    _ => log_info!("reconnecting (the stream ended)"),
+                }
                 self.retries += 1;
                 Next::Reopen
             }
-            Status::Ended if self.live() => {
-                self.retries += 1;
-                Next::Reopen
-            }
-            Status::Ended => Next::Ended,
+            Status::Ended if !self.live() => Next::Ended,
             Status::Playing => {
                 self.retries = 0;
                 Next::Nothing
@@ -165,8 +165,23 @@ mod tests {
     }
 
     #[test]
+    fn a_channel_that_keeps_ending_is_tried_a_few_times() {
+        let mut s = live();
+        let t = Instant::now();
+        for n in 0..RETRIES {
+            let at = t + Duration::from_secs(1 + u64::from(n));
+            assert_eq!(s.next(&Status::Ended, t), Next::Wait(at));
+            assert_eq!(s.next(&Status::Ended, at), Next::Reopen);
+            s.retry_at = None;
+        }
+        assert_eq!(s.next(&Status::Ended, t), Next::Nothing);
+    }
+
+    #[test]
     fn a_recording_ends_and_a_channel_goes_on() {
-        assert_eq!(live().next(&Status::Ended, Instant::now()), Next::Reopen);
+        let (mut channel, t) = (live(), Instant::now());
+        assert_eq!(channel.next(&Status::Ended, t), Next::Wait(t + Duration::from_secs(1)));
+        assert_eq!(channel.next(&Status::Ended, t + Duration::from_secs(1)), Next::Reopen);
         let mut movie = watching(Playing::Movie { key: "5".into() });
         assert_eq!(movie.next(&Status::Ended, Instant::now()), Next::Ended);
         assert_eq!(movie.next(&Status::Failed("gone".into()), Instant::now()), Next::Nothing);
