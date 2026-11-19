@@ -5,9 +5,8 @@
 **A free and open source, ultra-lightweight desktop IPTV player written in Rust — M3U
 playlists and Xtream Codes logins, a guide with catch-up, and AirPlay 2 sound built in.**
 
-haze is dust's sibling: where [dust](https://github.com/domknez/dust) plays your music,
-haze plays your channels. Dust in the air becomes haze — and the controls float over the
-picture like haze over a screen, fading away while you watch.
+The controls float over the picture like haze over a screen, fading away while you
+watch.
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
