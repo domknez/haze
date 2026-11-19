@@ -1,19 +1,22 @@
 //! The app's state and what happens each frame. What the viewer's actions do is in
 //! [`act`]; playing in [`playback`]; sources, groups and favourites in [`sources`];
 //! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`];
-//! keeping the channels and the guide fresh in [`refresh`].
+//! keeping the channels and the guide fresh in [`refresh`]; the sleep timer in
+//! [`sleep`].
 
 mod act;
 mod input;
 mod mini;
 mod playback;
 mod refresh;
+mod sleep;
 mod sources;
 
 pub use super::browse::Tab;
 pub use super::session::Playing;
 pub use act::{Act, Popup};
 pub use refresh::ago;
+pub use sleep::{Timer, left as sleep_left};
 
 use super::browse::Browse;
 use super::load::Load;
@@ -107,6 +110,7 @@ pub struct App {
     mini: mini::Mini,
     /// Loading the channels and the guide again, every few hours.
     pub refresh: refresh::Refresh,
+    pub sleep: sleep::Sleep,
 }
 
 impl App {
@@ -124,6 +128,7 @@ impl App {
             screen: None,
             mini: mini::Mini::Off,
             refresh: refresh::Refresh::default(),
+            sleep: sleep::Sleep::default(),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -204,6 +209,7 @@ impl App {
         self.poll_loads(ctx);
         self.poll_refresh(ctx);
         self.refresh_when_due(ctx);
+        self.sleep_when_due(ctx);
         for act in self.remotes.presses(self.prefs.volume) {
             self.apply(ctx, act);
         }

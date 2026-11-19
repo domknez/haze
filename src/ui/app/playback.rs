@@ -225,10 +225,10 @@ impl App {
     }
 
     fn effective_volume(&self) -> f32 {
-        if self.prefs.muted { 0.0 } else { self.prefs.volume }
+        if self.prefs.muted { 0.0 } else { self.prefs.volume * self.sleep_loudness() }
     }
 
-    fn update_volume(&self) {
+    pub(super) fn update_volume(&self) {
         if let Some(p) = &self.session.player {
             p.set_volume(self.effective_volume());
         }

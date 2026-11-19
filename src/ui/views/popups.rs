@@ -3,7 +3,7 @@
 
 use crate::output::Output;
 use crate::settings::Appearance;
-use crate::ui::app::{Act, App, Popup};
+use crate::ui::app::{Act, App, Popup, Timer, sleep_left};
 use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, typography};
 use crate::ui::video::Shape;
@@ -47,6 +47,7 @@ impl App {
                             Popup::Outputs => self.outputs_menu(ui, acts),
                             Popup::Sources => self.sources_menu(ui, acts),
                             Popup::AudioTracks => self.tracks_menu(ui, acts),
+                            Popup::Sleep => self.sleep_menu(ui, acts),
                             Popup::Settings => self.settings_menu(ui, acts),
                             Popup::GuideChannels => {}
                         });
@@ -218,6 +219,37 @@ impl App {
         ui.label(
             egui::RichText::new("Drop an .srt file on the window for subtitles of your own").font(typography::meta()).color(colors().faint),
         );
+    }
+
+    fn sleep_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        heading(ui, "Sleep timer");
+        let now = crate::iptv::time::now();
+        if let Some(at) = self.sleep.at {
+            let text = format!("Stops at {} ({})", crate::ui::views::hhmm(at), sleep_left(at, now));
+            ui.label(egui::RichText::new(text).font(typography::secondary()).color(colors().dim));
+            ui.add_space(4.0);
+        }
+        if menu_row(ui, Icon::Close, "Off", None, self.sleep.timer.is_none()).clicked() {
+            acts.push(Act::Sleep(None));
+        }
+        for minutes in Timer::MINUTES {
+            let label = if minutes < 60 {
+                format!("{minutes} minutes")
+            } else if minutes == 60 {
+                "1 hour".into()
+            } else {
+                format!("{} hours", minutes as f32 / 60.0)
+            };
+            if menu_row(ui, Icon::Moon, &label, None, self.sleep.timer == Some(Timer::In(minutes))).clicked() {
+                acts.push(Act::Sleep(Some(Timer::In(minutes))));
+            }
+        }
+        if let Some(prog) = self.programme_playing() {
+            let sub = format!("{}, ends at {}", prog.title, crate::ui::views::hhmm(prog.stop));
+            if menu_row(ui, Icon::Moon, "End of this programme", Some(&sub), self.sleep.timer == Some(Timer::EndOfProgramme)).clicked() {
+                acts.push(Act::Sleep(Some(Timer::EndOfProgramme)));
+            }
+        }
     }
 
     fn settings_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {

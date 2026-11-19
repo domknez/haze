@@ -63,7 +63,7 @@ impl App {
             let logo = channel.as_ref().and_then(|c| c.logo.as_deref()).and_then(|u| self.logos.get(u));
             widgets::logo_tile(ui.painter(), logo_rect, &name, logo.map(|l| l.0), logo.map(|l| l.1));
             ui.add_space(6.0);
-            let controls_w = 454.0;
+            let controls_w = 488.0;
             let text_w = (ui.available_width() - controls_w).max(120.0);
             ui.vertical(|ui| {
                 ui.set_width(text_w);
@@ -93,6 +93,15 @@ impl App {
         }
         if widgets::icon_button(ui, Icon::Mini, 34.0, p.dim, "Mini player (P)").clicked() {
             acts.push(Act::ToggleMini);
+        }
+        let sleep = match self.sleep.at {
+            Some(at) => format!("Sleep timer: stops {}", crate::ui::app::sleep_left(at, crate::iptv::time::now())),
+            None => "Sleep timer".into(),
+        };
+        let r = widgets::icon_button(ui, Icon::Moon, 34.0, if self.sleep.at.is_some() { p.accent } else { p.dim }, &sleep);
+        self.anchor(Popup::Sleep, r.rect);
+        if r.clicked() {
+            acts.push(Act::Popup(Some(Popup::Sleep)));
         }
         // Volume: a slider and the mute button.
         let mut volume = if self.prefs.muted { 0.0 } else { self.prefs.volume };

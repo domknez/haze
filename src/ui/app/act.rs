@@ -1,7 +1,7 @@
 //! What the viewer did this frame, and what it does: [`App::apply`] sends each
 //! action to the part of the app it concerns.
 
-use super::{App, Playing, Tab};
+use super::{App, Playing, Tab, Timer};
 use crate::iptv::model::{Programme, Shelf};
 use crate::library::Checked;
 use crate::output::Output;
@@ -15,6 +15,7 @@ pub enum Popup {
     Outputs,
     Sources,
     AudioTracks,
+    Sleep,
     Settings,
     /// Which channels the guide shows.
     GuideChannels,
@@ -61,6 +62,8 @@ pub enum Act {
     SwitchSource(usize),
     /// Load the channels and the guide of the source in use again.
     Refresh,
+    /// Set the sleep timer, or turn it off.
+    Sleep(Option<Timer>),
     Popup(Option<Popup>),
     Output(Output),
     Volume(f32),
@@ -127,6 +130,10 @@ impl App {
             Act::ShowHidden(show) => self.ask_show_hidden(show),
             Act::Pin(set) => self.ask_pin(set),
             Act::SwitchSource(i) => self.pick_source(ctx, i),
+            Act::Sleep(timer) => {
+                self.panels.popup = None;
+                self.set_sleep(timer);
+            }
             Act::Refresh => {
                 self.panels.popup = None;
                 self.start_refresh(ctx, true);

@@ -78,6 +78,8 @@ Secret Service), never in the settings files.
 - **Audio tracks and subtitles:** pick the language when a channel has several; text
   subtitles from the stream (SubRip, ASS, WebVTT, MP4 text), or drop an `.srt` on the
   window (UTF-8 or Windows-1250)
+- **Sleep timer** (the moon by the volume): playing stops in 15 minutes to an hour
+  and a half, or when the programme on ends, the sound fading out first
 - **Mini player** (P): the picture alone in a small window that stays above the
   others; drag it anywhere, P, Esc or a double-click bring the full window back
 - **Fill the window** (Z): the picture covers the window, its edges cut, instead of
