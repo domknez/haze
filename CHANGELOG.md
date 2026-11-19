@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.8 (2026-11-19)
+
 - Multiview: up to four live channels at once, from a channel's right-click menu;
   a click gives one the sound, a double-click watches it alone, and no more streams
   open than the provider allows

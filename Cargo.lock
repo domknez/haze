@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "haze"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "apple-native-keyring-store",
  "chacha20poly1305",
