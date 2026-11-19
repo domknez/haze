@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fill the window: Z (or Settings) lets the picture cover the window, its edges cut,
+  instead of black bars, and stays that way
+- A sets the picture's shape (16:9 or 4:3) for a stream that has it wrong, until the
+  next channel
+- ⌘, (Ctrl+, on Windows and Linux) opens the settings
+- Menus too long for the window scroll
+
 ## 0.1.4 (2026-11-19)
 
 - A mini player: P (or the button beside full screen) keeps the picture alone in a

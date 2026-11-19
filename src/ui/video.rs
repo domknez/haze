@@ -242,12 +242,56 @@ impl Gl {
 
 /// The largest rect of aspect `aspect` centred in `area`.
 pub fn fit(area: Rect, aspect: f32) -> Rect {
-    if aspect <= 0.0 {
+    place(area, aspect, false)
+}
+
+/// Where a picture of `aspect` goes in `area`: all of it, with bars where the shapes
+/// differ, or (`fill`) over all of `area`, its edges cut off.
+pub fn place(area: Rect, aspect: f32, fill: bool) -> Rect {
+    if aspect <= 0.0 || !aspect.is_finite() {
         return area;
     }
     let (w, h) = (area.width(), area.height());
-    let size = if w / h > aspect { egui::vec2(h * aspect, h) } else { egui::vec2(w, w / aspect) };
+    let wider = w / h > aspect;
+    let size = if wider != fill { egui::vec2(h * aspect, h) } else { egui::vec2(w, w / aspect) };
     Rect::from_center_size(area.center(), size)
+}
+
+/// The picture's shape: as the stream says, or set by the viewer for a stream that
+/// says it wrong (a 4:3 picture stretched to 16:9, or squeezed the other way).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Shape {
+    #[default]
+    AsBroadcast,
+    Wide,
+    Standard,
+}
+
+impl Shape {
+    pub const ALL: [Shape; 3] = [Shape::AsBroadcast, Shape::Wide, Shape::Standard];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Shape::AsBroadcast => "As broadcast",
+            Shape::Wide => "16:9",
+            Shape::Standard => "4:3",
+        }
+    }
+
+    /// The aspect to draw a picture the stream calls `stream` in.
+    pub fn aspect(self, stream: f32) -> f32 {
+        match self {
+            Shape::AsBroadcast => stream,
+            Shape::Wide => 16.0 / 9.0,
+            Shape::Standard => 4.0 / 3.0,
+        }
+    }
+
+    /// The one after this, round again after the last.
+    pub fn next(self) -> Shape {
+        let i = Shape::ALL.iter().position(|s| *s == self).unwrap_or(0);
+        Shape::ALL[(i + 1) % Shape::ALL.len()]
+    }
 }
 
 #[cfg(test)]
@@ -275,5 +319,25 @@ mod tests {
     fn fits_by_aspect() {
         let r = fit(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 100.0)), 1.0);
         assert_eq!(r, Rect::from_min_size(egui::pos2(50.0, 0.0), egui::vec2(100.0, 100.0)));
+    }
+
+    #[test]
+    fn fills_by_cutting_the_edges() {
+        let wide = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 100.0));
+        // A square picture in a wide window: full width, top and bottom cut.
+        assert_eq!(place(wide, 1.0, true), Rect::from_min_size(egui::pos2(0.0, -50.0), egui::vec2(200.0, 200.0)));
+        // A wider picture: full height, the sides cut.
+        assert_eq!(place(wide, 4.0, true), Rect::from_min_size(egui::pos2(-100.0, 0.0), egui::vec2(400.0, 100.0)));
+        // The same shape as the window: nothing to cut, nothing to fill.
+        assert_eq!(place(wide, 2.0, true), wide);
+        assert_eq!(place(wide, 2.0, false), wide);
+        assert_eq!(place(wide, f32::NAN, true), wide);
+    }
+
+    #[test]
+    fn shapes_go_round() {
+        assert_eq!(Shape::default().next().next().next(), Shape::default());
+        assert_eq!(Shape::AsBroadcast.aspect(1.5), 1.5);
+        assert_eq!(Shape::Standard.aspect(1.5), 4.0 / 3.0);
     }
 }

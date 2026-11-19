@@ -55,6 +55,8 @@ pub struct Session {
     pub playing: Option<Playing>,
     /// Stream time positions count from (where the stream starts), so they start at 0.
     pub start_pts: Option<f64>,
+    /// The picture's shape, when the viewer set one for this stream.
+    pub shape: crate::ui::video::Shape,
     /// Times the live channel was opened again since it last played.
     retries: u32,
     retry_at: Option<Instant>,

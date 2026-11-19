@@ -6,6 +6,7 @@ use crate::settings::Appearance;
 use crate::ui::app::{Act, App, Popup};
 use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, typography};
+use crate::ui::video::Shape;
 use crate::ui::widgets;
 use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, pos2, vec2};
 
@@ -25,6 +26,8 @@ impl App {
         let x = (anchor.right() - MENU_WIDTH).clamp(screen.left() + 8.0, screen.right() - MENU_WIDTH - 8.0);
         let (pivot, pos) =
             if below { (Align2::LEFT_TOP, pos2(x, anchor.bottom() + 8.0)) } else { (Align2::LEFT_BOTTOM, pos2(x, anchor.top() - 8.0)) };
+        // What doesn't fit between the button and the edge of the window scrolls.
+        let room = if below { screen.bottom() - pos.y } else { pos.y - screen.top() } - 8.0 - 16.0;
         let resp = egui::Area::new(egui::Id::unique(("popup", popup as u8)))
             .order(egui::Order::Foreground)
             .pivot(pivot)
@@ -32,13 +35,21 @@ impl App {
             .show(ctx, |ui| {
                 widgets::popover().show(ui, |ui| {
                     ui.set_width(MENU_WIDTH - 16.0);
-                    match popup {
-                        Popup::Outputs => self.outputs_menu(ui, acts),
-                        Popup::Sources => self.sources_menu(ui, acts),
-                        Popup::AudioTracks => self.tracks_menu(ui, acts),
-                        Popup::Settings => self.settings_menu(ui, acts),
-                        Popup::GuideChannels => self.guide_channels_menu(ui, acts),
+                    if popup == Popup::GuideChannels {
+                        // Scrolls its own long list.
+                        return self.guide_channels_menu(ui, acts);
                     }
+                    egui::ScrollArea::vertical()
+                        .id_salt(("popup-scroll", popup as u8))
+                        .max_height(room.max(120.0))
+                        .min_scrolled_height(room.max(120.0))
+                        .show(ui, |ui| match popup {
+                            Popup::Outputs => self.outputs_menu(ui, acts),
+                            Popup::Sources => self.sources_menu(ui, acts),
+                            Popup::AudioTracks => self.tracks_menu(ui, acts),
+                            Popup::Settings => self.settings_menu(ui, acts),
+                            Popup::GuideChannels => {}
+                        });
                 });
             });
         // A click elsewhere closes it (the button itself toggles).
@@ -208,6 +219,18 @@ impl App {
                 acts.push(Act::Theme(a));
             }
         }
+        ui.add_space(6.0);
+        heading(ui, "Picture");
+        let fill = self.prefs.fill;
+        if menu_row(ui, Icon::Fullscreen, "Fill the window", Some("Cuts the edges instead of black bars"), fill).clicked() {
+            acts.push(Act::Fill(!fill));
+        }
+        for shape in Shape::ALL {
+            let sub = (shape == Shape::AsBroadcast).then_some("As the stream says");
+            if menu_row(ui, Icon::Mini, shape.label(), sub, self.session.shape == shape).clicked() {
+                acts.push(Act::Shape(shape));
+            }
+        }
         let hidden = self.source().map_or(0, |s| s.hidden.len());
         if hidden > 0 {
             ui.add_space(6.0);
@@ -229,20 +252,26 @@ impl App {
         }
         ui.add_space(6.0);
         heading(ui, "Keys");
+        // ⌘ on macOS, Ctrl elsewhere.
+        let cmd = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl " };
         for (k, what) in [
-            ("↑ ↓", "previous / next channel"),
-            ("← →", "back / ahead 10 seconds"),
-            ("Space", "pause"),
-            ("F", "full screen"),
-            ("M", "mute"),
-            ("L", "channel list"),
-            ("G", "guide"),
-            ("[ ]", "picture earlier / later"),
-            ("⌘F", "search"),
-            ("⌘1–5", "tabs"),
+            ("↑ ↓".to_string(), "previous / next channel"),
+            ("← →".to_string(), "back / ahead 10 seconds"),
+            ("Space".to_string(), "pause"),
+            ("F".to_string(), "full screen"),
+            ("P".to_string(), "mini player"),
+            ("Z".to_string(), "fill the window"),
+            ("A".to_string(), "picture shape"),
+            ("M".to_string(), "mute"),
+            ("L".to_string(), "channel list"),
+            ("G".to_string(), "guide"),
+            ("[ ]".to_string(), "picture earlier / later"),
+            (format!("{cmd}F"), "search"),
+            (format!("{cmd},"), "settings"),
+            (format!("{cmd}1–5"), "tabs"),
         ] {
             ui.horizontal(|ui| {
-                ui.add_sized([56.0, 18.0], egui::Label::new(egui::RichText::new(k).font(typography::meta()).color(colors().text)));
+                ui.add_sized([56.0, 18.0], egui::Label::new(egui::RichText::new(&k).font(typography::meta()).color(colors().text)));
                 ui.label(egui::RichText::new(what).font(typography::secondary()).color(colors().dim));
             });
         }

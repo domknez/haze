@@ -2,7 +2,7 @@
 //! the pointer going still, and remote controls (the AirPlay speaker's buttons,
 //! media keys, the system's Now Playing).
 
-use super::{Act, App, Tab};
+use super::{Act, App, Popup, Tab};
 use crate::media::Status;
 use crate::output::airplay::dacp::{self, Remote};
 use crate::ui::now_playing::{NowPlaying, Press};
@@ -139,11 +139,21 @@ impl App {
             if i.consume_key(cmd, Key::L) {
                 acts.push(Act::ToggleRail);
             }
+            // ⌘, on macOS, Ctrl+, elsewhere: where every app keeps its settings.
+            if i.consume_key(cmd, Key::Comma) && self.panels.popup != Some(Popup::Settings) {
+                acts.push(Act::Popup(Some(Popup::Settings)));
+            }
             if i.consume_key(Modifiers::NONE, Key::Escape) {
                 acts.extend(self.escape(full));
             }
             if !typing {
                 acts.extend(KEYS.iter().filter(|(key, _)| i.consume_key(Modifiers::NONE, *key)).map(|(_, act)| act()));
+                if i.consume_key(Modifiers::NONE, Key::Z) {
+                    acts.push(Act::Fill(!self.prefs.fill));
+                }
+                if i.consume_key(Modifiers::NONE, Key::A) {
+                    acts.push(Act::Shape(self.session.shape.next()));
+                }
             }
         });
     }

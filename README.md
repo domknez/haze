@@ -74,9 +74,11 @@ Secret Service), never in the settings files.
   window (UTF-8 or Windows-1250)
 - **Mini player** (P): the picture alone in a small window that stays above the
   others; drag it anywhere, P, Esc or a double-click bring the full window back
+- **Fill the window** (Z): the picture covers the window, its edges cut, instead of
+  black bars; A sets the shape (16:9, 4:3) of a stream that has it wrong
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
   G for the guide,
-  ⌘F to search, ⌘1–5 for the tabs
+  ⌘F to search, ⌘1–5 for the tabs, ⌘, for settings (Ctrl on Windows and Linux)
 
 **Listening anywhere**
 

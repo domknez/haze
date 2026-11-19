@@ -82,7 +82,7 @@ impl App {
             (v.outer_rect, v.inner_rect, v.maximized == Some(true))
         });
         let back = Back { pos: outer.map(|r| r.min), size: inner.map(|r| r.size()), maximized };
-        let aspect = self.session.player.as_ref().and_then(|p| p.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
+        let aspect = self.picture_aspect();
         let window = outer.or(inner).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::from(metrics::WINDOW_SIZE)));
         let mini = frame(window, aspect);
         if maximized {

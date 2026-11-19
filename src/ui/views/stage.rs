@@ -74,9 +74,9 @@ impl App {
             acts.push(Act::Popup(None));
         }
         let p = colors();
+        let picture = video::place(area, self.picture_aspect(), self.prefs.fill);
         if self.video.has_picture() {
-            let aspect = self.session.player.as_ref().and_then(|pl| pl.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
-            self.video.paint(ui.painter(), video::fit(area, aspect));
+            self.video.paint(ui.painter(), picture);
         }
         let Some(player) = &self.session.player else {
             if !self.sources.is_empty() {
@@ -85,8 +85,8 @@ impl App {
             return;
         };
         if let Some(text) = player.subtitles() {
-            let aspect = player.frame().1.map_or(16.0 / 9.0, |f| f.aspect);
-            let picture = video::fit(area, aspect);
+            // Over the part of the picture that shows.
+            let picture = picture.intersect(area);
             let floor = if self.panels.controls_shown { area.bottom() - metrics::BOTTOM - metrics::GAP * 2.0 } else { picture.bottom() };
             subtitles(ui.painter(), &text, picture, floor.min(picture.bottom()) - picture.height() * 0.04);
         }
@@ -120,6 +120,12 @@ impl App {
             ui.painter().circle_filled(r.center(), 36.0, Color32::from_black_alpha(120));
             crate::ui::icons::paint(ui.painter(), r.shrink(24.0), crate::ui::icons::Icon::Pause, p.on_video);
         }
+    }
+
+    /// The shape the picture is drawn in: the viewer's, or the stream's.
+    pub fn picture_aspect(&self) -> f32 {
+        let stream = self.session.player.as_ref().and_then(|p| p.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
+        self.session.shape.aspect(stream)
     }
 
     /// What's playing, by name.

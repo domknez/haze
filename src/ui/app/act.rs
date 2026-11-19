@@ -64,6 +64,10 @@ pub enum Act {
     ToggleFullscreen,
     /// Go to the mini player, or back to the full window.
     ToggleMini,
+    /// Fill the window with the picture (its edges cut), or show it whole.
+    Fill(bool),
+    /// Draw the picture in this shape until something else plays.
+    Shape(crate::ui::video::Shape),
     ToggleRail,
     /// Open or close the guide.
     ToggleGuide,
@@ -128,6 +132,15 @@ impl App {
             Act::ToggleGuide => self.toggle_guide(),
             Act::GuideChannels(pick) => self.guide_channels(pick),
             Act::ToggleMini => self.toggle_mini(ctx),
+            Act::Fill(fill) => {
+                self.prefs.update(|p| p.fill = fill);
+                self.show_toast(if fill { "Picture fills the window" } else { "Whole picture" });
+            }
+            Act::Shape(shape) => {
+                self.session.shape = shape;
+                let until = if shape == crate::ui::video::Shape::AsBroadcast { "" } else { " until the next channel" };
+                self.show_toast(&format!("Picture shape: {}{until}", shape.label()));
+            }
             Act::ToggleFullscreen => {
                 // From the mini player, full screen goes through the full window.
                 if self.mini_on() {
