@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.4 (2026-11-19)
+
 - A mini player: P (or the button beside full screen) keeps the picture alone in a
   small window above the others; P, Esc or a double-click bring the full window back
 
