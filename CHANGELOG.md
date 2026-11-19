@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-11-19)
+
 - Updates are signed: haze installs a new version only when its checksums carry the
   signature of the key the releases are made with
 - An AirPlay speaker's buttons are taken only from the speaker haze plays on
