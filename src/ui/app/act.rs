@@ -30,6 +30,14 @@ pub enum Act {
     OpenSeries(Option<usize>),
     /// An episode of the open series, by its index there.
     PlayEpisode(usize),
+    /// Watch a live channel beside what's on (multiview).
+    AddTile(String),
+    /// Bring a channel watched beside into focus, with its sound.
+    FocusTile(String),
+    /// Stop watching a channel among the others.
+    CloseTile(String),
+    /// Watch one of the channels alone.
+    Solo(String),
     /// Open a series (its index in the catalog) and carry on with the episode
     /// watched last.
     CarryOn(usize),
@@ -108,6 +116,10 @@ impl App {
             Act::OpenSeries(None) => self.browse.close_series(),
             Act::PlayEpisode(i) => self.play_episode(ctx, i),
             Act::CarryOn(i) => self.carry_on_series(ctx, i),
+            Act::AddTile(key) => self.add_tile(ctx, key),
+            Act::FocusTile(key) => self.focus_tile(key),
+            Act::CloseTile(key) => self.close_tile(&key),
+            Act::Solo(key) => self.solo(key),
             Act::PlayCatchup(key, programme) => self.play(ctx, Playing::Catchup { key, programme }),
             Act::GoLive => self.go_live(ctx),
             Act::TogglePause => self.set_paused(!self.session.paused()),

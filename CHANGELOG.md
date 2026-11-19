@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Multiview: up to four live channels at once, from a channel's right-click menu;
+  a click gives one the sound, a double-click watches it alone, and no more streams
+  open than the provider allows
 - Search the guide: a programme by name on every channel, what's on now first, then
   what's still to come and what's in the archive; ⌘F (Ctrl+F) while the guide is open
 - Sleep timer, by the volume: playing stops after 15 minutes to an hour and a half,

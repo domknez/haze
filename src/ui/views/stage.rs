@@ -73,6 +73,9 @@ impl App {
         } else if resp.clicked() && self.panels.popup.is_some() {
             acts.push(Act::Popup(None));
         }
+        if self.multi.on() && !mini {
+            return self.multi_stage(ui, area, acts);
+        }
         let p = colors();
         let picture = video::place(area, self.picture_aspect(), self.prefs.fill);
         if self.video.has_picture() {
@@ -119,6 +122,61 @@ impl App {
             let r = Rect::from_center_size(area.center(), vec2(72.0, 72.0));
             ui.painter().circle_filled(r.center(), 36.0, Color32::from_black_alpha(120));
             crate::ui::icons::paint(ui.painter(), r.shrink(24.0), crate::ui::icons::Icon::Pause, p.on_video);
+        }
+    }
+
+    /// Several channels at once: each in its place, the one in focus (whose sound
+    /// plays) outlined; a click brings one into focus, a double-click watches it
+    /// alone, the cross stops it.
+    fn multi_stage(&mut self, ui: &mut egui::Ui, area: Rect, acts: &mut Vec<Act>) {
+        let p = colors();
+        let focus = self.session.playing.as_ref().map(|pl| pl.key().to_string());
+        let order = self.multi.order.clone();
+        for (key, r) in order.iter().zip(crate::ui::app::multi_slots(area.shrink(4.0), order.len())) {
+            let focused = focus.as_deref() == Some(key.as_str());
+            let (video, player) = if focused {
+                (&self.video, self.session.player.as_ref())
+            } else {
+                match self.multi.tile(key) {
+                    Some(t) => (&t.video, t.session.player.as_ref()),
+                    None => continue,
+                }
+            };
+            ui.painter().rect_filled(r, 6.0, Color32::BLACK);
+            if video.has_picture() {
+                let aspect = player.and_then(|pl| pl.frame().1).map_or(16.0 / 9.0, |f| f.aspect);
+                video.paint(ui.painter(), video::fit(r, aspect));
+            } else if player.is_some_and(|pl| matches!(pl.status(), Status::Failed(_))) {
+                ui.painter().text(r.center(), Align2::CENTER_CENTER, "Reconnecting…", typography::control(), p.on_video);
+            } else {
+                widgets::spinner(ui, r.center(), 14.0, p.accent);
+            }
+            let resp = ui.interact(r, ui.scope_id().with(("tile", key)), Sense::click());
+            if resp.double_clicked() {
+                acts.push(Act::Solo(key.clone()));
+            } else if resp.clicked() && !focused {
+                acts.push(Act::FocusTile(key.clone()));
+            }
+            if focused {
+                ui.painter().rect_stroke(r, 6.0, egui::Stroke::new(2.0, p.accent), egui::StrokeKind::Inside);
+            }
+            // The channel's name, and a cross to stop it, while the pointer is over it.
+            if resp.hovered() || focused && self.panels.controls_shown {
+                let name = self.channel(key).map(|c| c.name.clone()).unwrap_or_default();
+                let text = widgets::ellipsize(ui, &name, typography::small_strong(), p.text, r.width() - 80.0);
+                let pill = Rect::from_min_size(r.left_bottom() + vec2(10.0, -10.0 - 28.0), vec2(text.size().x + 20.0, 28.0));
+                ui.painter().rect_filled(pill, 14.0, p.glass_strong);
+                ui.painter().galley(pill.center() - text.size() / 2.0, text, p.text);
+            }
+            if resp.hovered() || resp.contains_pointer() {
+                let close = Rect::from_center_size(r.right_top() + vec2(-22.0, 22.0), vec2(28.0, 28.0));
+                let x = ui.interact(close, ui.scope_id().with(("tile-close", key)), Sense::click());
+                ui.painter().circle_filled(close.center(), 14.0, if x.hovered() { p.glass_strong } else { Color32::from_black_alpha(120) });
+                crate::ui::icons::paint(ui.painter(), close.shrink(9.0), Icon::Close, if x.hovered() { p.text } else { p.on_video });
+                if x.on_hover_text("Stop this channel").clicked() {
+                    acts.push(Act::CloseTile(key.clone()));
+                }
+            }
         }
     }
 

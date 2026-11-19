@@ -81,6 +81,9 @@ Secret Service), never in the settings files.
   window (UTF-8 or Windows-1250)
 - **Sleep timer** (the moon by the volume): playing stops in 15 minutes to an hour
   and a half, or when the programme on ends, the sound fading out first
+- **Multiview:** up to four live channels at once (right-click a channel, *Watch
+  alongside*); a click on one gives it the sound, a double-click watches it alone.
+  Each channel is a stream of its own: haze keeps to what the provider allows
 - **Mini player** (P): the picture alone in a small window that stays above the
   others; drag it anywhere, P, Esc or a double-click bring the full window back
 - **Fill the window** (Z): the picture covers the window, its edges cut, instead of

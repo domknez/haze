@@ -396,7 +396,8 @@ impl App {
         if place.is_some() {
             favorite_drop(ui, &resp, rect, &key, acts);
         }
-        resp.context_menu(|ui| channel_menu(ui, &key, favorite, place, acts));
+        let alongside = self.session.live() && !on && !self.multi.order.contains(&key);
+        resp.context_menu(|ui| channel_menu(ui, &key, favorite, alongside, place, acts));
     }
 
     fn movie_row(&mut self, ui: &mut egui::Ui, index: usize, playing: Option<&str>, acts: &mut Vec<Act>) {
@@ -645,7 +646,8 @@ fn favorite_drop(ui: &egui::Ui, resp: &egui::Response, rect: Rect, key: &str, ac
 }
 
 /// A channel's right-click menu: moving it among the favourites, and (un)marking it.
-fn channel_menu(ui: &mut egui::Ui, key: &str, favorite: bool, place: Option<&Place>, acts: &mut Vec<Act>) {
+/// `alongside`: a live channel plays, which this one can be watched beside.
+fn channel_menu(ui: &mut egui::Ui, key: &str, favorite: bool, alongside: bool, place: Option<&Place>, acts: &mut Vec<Act>) {
     if let Some(place) = place {
         let moves = [
             ("Move to the top", place.prev.as_ref().map(|_| (&place.first, false))),
@@ -665,6 +667,10 @@ fn channel_menu(ui: &mut egui::Ui, key: &str, favorite: bool, place: Option<&Pla
     }
     if ui.button(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
         acts.push(Act::ToggleFavorite(key.to_string()));
+        ui.close();
+    }
+    if alongside && ui.button("Watch alongside (multiview)").clicked() {
+        acts.push(Act::AddTile(key.to_string()));
         ui.close();
     }
 }

@@ -45,22 +45,46 @@ impl App {
     /// A player for `playing`, which starts once the one before has stopped (see
     /// [`crate::media::Stopping`]); None when it can't be played.
     fn open(&mut self, ctx: &egui::Context, playing: &Playing, start_at: Option<f64>) -> Option<Player> {
-        let request = Request { start_at, ..self.request_for(playing)? };
-        log_info!("playing {}", crate::iptv::http::redact(&request.url));
+        self.request_for(playing)?;
         self.keep_progress();
         let previous = self.session.player.take().map(Player::stop);
         self.video.clear();
-        let repaint = ctx.clone();
-        // A zero-delay request draws twice (egui lets layouts settle); a frame of video
-        // needs one pass.
-        let player = Player::open(request, self.output.clone(), self.effective_volume(), previous, move || {
-            repaint.request_repaint_after(Duration::from_millis(1))
-        });
+        let player = self.new_player(ctx, playing, start_at, self.output.clone(), self.effective_volume(), previous)?;
         player.set_picture_delay(self.picture_delay());
         Some(player)
     }
 
+    /// A player for `playing` on `output`, which starts once `after` has stopped.
+    pub(super) fn new_player(
+        &self,
+        ctx: &egui::Context,
+        playing: &Playing,
+        start_at: Option<f64>,
+        output: Output,
+        volume: f32,
+        after: Option<crate::media::Stopping>,
+    ) -> Option<Player> {
+        let request = Request { start_at, ..self.request_for(playing)? };
+        log_info!("playing {}", crate::iptv::http::redact(&request.url));
+        let repaint = ctx.clone();
+        // A zero-delay request draws twice (egui lets layouts settle); a frame of video
+        // needs one pass.
+        Some(Player::open(request, output, volume, after, move || repaint.request_repaint_after(Duration::from_millis(1))))
+    }
+
     pub fn play(&mut self, ctx: &egui::Context, playing: Playing) {
+        // In multiview a channel takes the place of the one in focus; anything else
+        // is watched alone.
+        if self.multi.on() {
+            match &playing {
+                Playing::Live { key } if self.session.live() => {
+                    if !self.retune_focus(key) {
+                        return;
+                    }
+                }
+                _ => self.leave_multi(),
+            }
+        }
         let source = self.source_id();
         let resume = match &playing {
             Playing::Movie { key } | Playing::Episode { episode: Episode { key, .. }, .. } => self.progress.resume_at(&source, key),
@@ -104,6 +128,7 @@ impl App {
     }
 
     pub(super) fn stop(&mut self) {
+        self.leave_multi();
         self.keep_progress();
         self.session.stop();
         self.video.clear();

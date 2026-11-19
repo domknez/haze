@@ -2,11 +2,12 @@
 //! [`act`]; playing in [`playback`]; sources, groups and favourites in [`sources`];
 //! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`];
 //! keeping the channels and the guide fresh in [`refresh`]; the sleep timer in
-//! [`sleep`].
+//! [`sleep`]; several channels at once in [`multi`].
 
 mod act;
 mod input;
 mod mini;
+mod multi;
 mod playback;
 mod refresh;
 mod sleep;
@@ -15,6 +16,7 @@ mod sources;
 pub use super::browse::Tab;
 pub use super::session::Playing;
 pub use act::{Act, Popup};
+pub use multi::slots as multi_slots;
 pub use refresh::ago;
 pub use sleep::{Timer, left as sleep_left};
 
@@ -111,6 +113,7 @@ pub struct App {
     /// Loading the channels and the guide again, every few hours.
     pub refresh: refresh::Refresh,
     pub guide_search: crate::ui::views::GuideSearch,
+    pub multi: multi::Multi,
     pub sleep: sleep::Sleep,
 }
 
@@ -130,6 +133,7 @@ impl App {
             mini: mini::Mini::Off,
             refresh: refresh::Refresh::default(),
             guide_search: Default::default(),
+            multi: multi::Multi::default(),
             sleep: sleep::Sleep::default(),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
@@ -218,6 +222,7 @@ impl App {
         self.announce();
         self.use_saved_output();
         self.poll_player(ctx);
+        self.poll_tiles(ctx);
         self.keep_screen_on();
         self.updates.poll(ctx);
     }
