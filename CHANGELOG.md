@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Continue watching, among the categories of movies and series: what you're in the
+  middle of, the latest first; a series picked there plays its episode you were on
+
 ## 0.1.7 (2026-11-19)
 
 - The channels and the guide load again in the background every six hours, without

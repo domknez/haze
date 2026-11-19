@@ -9,7 +9,7 @@ mod progress;
 
 pub use catchup::catchup_url;
 pub use marks::Marks;
-pub use progress::Progress;
+pub use progress::{Left, Progress};
 
 use crate::credentials;
 use crate::iptv::model::{Catalog, Channel, Guide, Shelf};

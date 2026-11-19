@@ -84,11 +84,13 @@ impl App {
     /// Keep how far the movie or episode playing got.
     pub(super) fn keep_progress(&mut self) {
         let Some(player) = &self.session.player else { return };
-        let (Some(key), Some(position), Some(duration)) = (self.session.recording_key(), player.position(), player.info().duration) else {
+        let (Some((key, series)), Some(position), Some(duration)) =
+            (self.session.recording_key(), player.position(), player.info().duration)
+        else {
             return;
         };
         let position = position - self.session.start_pts.unwrap_or(0.0);
-        self.progress.record(&self.source_id(), &key, position, duration);
+        self.progress.record(&self.source_id(), &key, series.as_deref(), position, duration);
         self.progress_at = Instant::now();
     }
 
@@ -128,6 +130,31 @@ impl App {
             }
             _ => Load::Ready(series.episodes.clone()),
         };
+    }
+
+    /// Open series `i` and play the episode of it watched last, from where it was
+    /// left, once the episodes are in.
+    pub(super) fn carry_on_series(&mut self, ctx: &egui::Context, i: usize) {
+        let Some(series) = self.catalog.ready().and_then(|c| c.series.get(i)).map(|s| s.key.clone()) else { return };
+        let episode = self.progress.left(&self.source_id()).into_iter().find_map(|l| match l {
+            crate::library::Left::Episode { series: s, key } if s == series => Some(key),
+            _ => None,
+        });
+        self.open_series(ctx, i);
+        self.browse.carry_on = episode;
+        self.carry_on(ctx);
+    }
+
+    /// Play the episode to carry on with, once the open series' episodes are in.
+    pub(super) fn carry_on(&mut self, ctx: &egui::Context) {
+        if self.browse.carry_on.is_none() || self.browse.episodes.is_loading() {
+            return;
+        }
+        let key = self.browse.carry_on.take();
+        let at = self.browse.episodes.ready().and_then(|l| l.iter().position(|e| Some(&e.key) == key.as_ref()));
+        if let Some(i) = at {
+            self.play_episode(ctx, i);
+        }
     }
 
     pub(super) fn play_episode(&mut self, ctx: &egui::Context, i: usize) {
@@ -259,8 +286,8 @@ impl App {
             Next::Wait(at) => ctx.request_repaint_after(at.saturating_duration_since(Instant::now())),
             Next::Reopen => self.reopen(ctx),
             Next::Ended => {
-                if let (Some(key), Some(duration)) = (self.session.recording_key(), duration) {
-                    self.progress.record(&self.source_id(), &key, duration, duration);
+                if let (Some((key, series)), Some(duration)) = (self.session.recording_key(), duration) {
+                    self.progress.record(&self.source_id(), &key, series.as_deref(), duration, duration);
                 }
                 let next = self.catalog.ready().zip(self.session.playing.as_ref()).and_then(|(c, p)| self.browse.next_episode(c, p));
                 if let Some(next) = next {

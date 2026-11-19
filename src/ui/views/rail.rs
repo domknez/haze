@@ -2,6 +2,7 @@
 
 use crate::iptv::model::{Channel, Programme, Shelf};
 use crate::iptv::time;
+use crate::library::Left;
 use crate::ui::app::{Act, App, Tab};
 use crate::ui::icons::{self, Icon};
 use crate::ui::load::Load;
@@ -80,12 +81,17 @@ impl App {
             ui.add_space(4.0);
         }
         let current = self.browse.groups().picked.clone();
+        let continuing = self.browse.continuing();
         let needle = self.browse.group_filter.trim().to_lowercase();
         let counts = &self.browse.groups().counts;
         let total: usize = counts.iter().map(|(_, n)| n).sum();
         let shown: Vec<&(String, usize)> = counts.iter().filter(|(g, _)| needle.is_empty() || g.to_lowercase().contains(&needle)).collect();
         let all = all_label(self.browse.tab);
+        // Movies and series left part of the way through, first after them all.
+        let left = if library { self.left_count() } else { 0 };
+        let extra = 1 + usize::from(left > 0);
         let mut chosen = None;
+        let mut carry_on = false;
         // Playlists' groups can be moved between channels, movies and series.
         let movable = self.source().is_some_and(|s| s.login().is_none());
         let here = match self.browse.tab {
@@ -97,12 +103,21 @@ impl App {
         egui::ScrollArea::vertical().id_salt(("groups", self.browse.tab)).auto_shrink([false, false]).show_rows(
             ui,
             metrics::GROUP_ROW,
-            shown.len() + 1,
+            shown.len() + extra,
             |ui, range| {
                 for i in range {
+                    if i == 1 && extra == 2 {
+                        if group_row(ui, CONTINUING, left, continuing, false).clicked() {
+                            carry_on = true;
+                        }
+                        continue;
+                    }
                     let (name, count, on) = match i {
-                        0 => (all, total, current.is_none()),
-                        _ => (shown[i - 1].0.as_str(), shown[i - 1].1, current.as_deref() == Some(shown[i - 1].0.as_str())),
+                        0 => (all, total, current.is_none() && !continuing),
+                        _ => {
+                            let (g, n) = shown[i - extra];
+                            (g.as_str(), *n, !continuing && current.as_deref() == Some(g.as_str()))
+                        }
                     };
                     let hidden = i > 0 && self.browse.hidden.contains(name);
                     let row = group_row(ui, name, count, on, hidden);
@@ -140,6 +155,9 @@ impl App {
         if let Some(g) = chosen {
             acts.push(Act::Group(g));
         }
+        if carry_on {
+            acts.push(Act::Continuing);
+        }
     }
 
     fn rail_header(&mut self, ui: &mut egui::Ui, width: f32, acts: &mut Vec<Act>) {
@@ -164,6 +182,7 @@ impl App {
         // What's listed: the group (click to show the column of groups) and how many.
         let browsing = matches!(self.browse.tab, Tab::Live | Tab::Movies | Tab::Series);
         let label = match (browsing, self.browse.groups().picked.clone()) {
+            _ if self.browse.continuing() => CONTINUING.into(),
             (true, Some(g)) => g,
             (true, None) => all_label(self.browse.tab).into(),
             (false, _) => self.browse.tab.label().into(),
@@ -243,6 +262,7 @@ impl App {
         Some(match self.browse.tab {
             Tab::Movies => Act::PlayMovie(c.movies.get(index)?.key.clone()),
             Tab::Series if self.browse.open_series.is_some() => Act::PlayEpisode(index),
+            Tab::Series if self.browse.continuing() => Act::CarryOn(index),
             Tab::Series => Act::OpenSeries(Some(index)),
             _ => Act::PlayChannel(c.channels.get(index)?.key.clone()),
         })
@@ -283,6 +303,8 @@ impl App {
             let text = match self.browse.tab {
                 Tab::Favorites => "No favourites yet. Right-click a channel, or press the star while it plays.",
                 Tab::Recent => "Channels you watch show up here.",
+                Tab::Movies if self.browse.continuing() => "Movies you stop part of the way through show up here.",
+                Tab::Series if self.browse.continuing() => "Series you're in the middle of show up here.",
                 Tab::Movies if self.catalog.ready().is_some_and(|c| c.movies.is_empty()) => "This source has no movies.",
                 Tab::Series if self.catalog.ready().is_some_and(|c| c.series.is_empty()) => "This source has no series.",
                 _ => "Nothing matches.",
@@ -400,7 +422,7 @@ impl App {
         };
         let meta = [series.year.map(|y| y.to_string()), series.rating.map(|r| format!("★ {r:.1}")), episodes, Some(series.group.clone())];
         if self.poster_row(ui, &series.name, series.poster.as_deref(), &meta, false, None).clicked() {
-            acts.push(Act::OpenSeries(Some(index)));
+            acts.push(if self.browse.continuing() { Act::CarryOn(index) } else { Act::OpenSeries(Some(index)) });
         }
     }
 
@@ -529,6 +551,17 @@ fn watched_mark(ui: &egui::Ui, row: Rect, track: Rect, watched: Option<f32>) {
 }
 
 /// The first row of the groups: everything the tab has.
+/// The group of movies or series left part of the way through.
+const CONTINUING: &str = "Continue watching";
+
+impl App {
+    /// How many movies or series (by the tab on screen) were left part of the way through.
+    fn left_count(&self) -> usize {
+        let movies = self.browse.tab == Tab::Movies;
+        self.progress.left(&self.source_id()).iter().filter(|l| matches!(l, Left::Movie(_)) == movies).count()
+    }
+}
+
 fn all_label(tab: Tab) -> &'static str {
     match tab {
         Tab::Movies => "All movies",

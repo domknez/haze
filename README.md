@@ -64,7 +64,9 @@ Secret Service), never in the settings files.
 - **Movies and series:** the provider's video library by category, with posters;
   open a series for its episodes in season order, and the next one starts when an
   episode ends. Movies and episodes **carry on where you left them**, with a bar for how
-  much of each you've seen and a tick on the ones you finished. Seek bar, ← → to skip 10 seconds
+  much of each you've seen and a tick on the ones you finished; **Continue watching**
+  among the categories gathers the movies and series you're in the middle of, and
+  picking a series there plays its episode you were on. Seek bar, ← → to skip 10 seconds
 - **Zapping:** ↑ ↓ (or Page Up / Down) through the list on screen; the last channel
   comes back on the next start
 - **Live channels reconnect** by themselves when the provider drops the stream

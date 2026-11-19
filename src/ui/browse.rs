@@ -4,7 +4,7 @@
 use super::load::Load;
 use super::session::Playing;
 use crate::iptv::model::{Catalog, Episode};
-use crate::library::Marks;
+use crate::library::{Left, Marks, Progress};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,6 +49,8 @@ impl Tab {
 #[derive(Default)]
 pub struct Groups {
     pub picked: Option<String>,
+    /// What was left part of the way through shows instead (movies and series).
+    pub continuing: bool,
     pub counts: Vec<(String, usize)>,
 }
 
@@ -63,6 +65,8 @@ pub struct Browse {
     /// The series whose episodes the rail lists (its index in the catalog), and them.
     pub open_series: Option<usize>,
     pub episodes: Load<Vec<Episode>>,
+    /// The episode to carry on with once the open series' episodes are in.
+    pub carry_on: Option<String>,
     /// Groups the viewer hid, left out everywhere unless `show_hidden`.
     pub hidden: BTreeSet<String>,
     pub show_hidden: bool,
@@ -76,10 +80,12 @@ pub struct Browse {
 struct ListKey {
     tab: Tab,
     group: Option<String>,
+    continuing: bool,
     search: String,
     /// How big the catalog is (a new one lists again).
     size: usize,
     marks: u64,
+    progress: u64,
     /// The open series and how many episodes it has, once they're in.
     episodes: Option<(usize, usize)>,
 }
@@ -95,6 +101,7 @@ impl Browse {
             group_filter: String::new(),
             open_series: None,
             episodes: Load::Idle,
+            carry_on: None,
             hidden: BTreeSet::new(),
             show_hidden: false,
             list: Vec::new(),
@@ -152,15 +159,31 @@ impl Browse {
     }
 
     pub fn pick_group(&mut self, group: Option<String>) {
-        let groups = match self.tab {
+        let groups = self.groups_here();
+        groups.picked = group;
+        groups.continuing = false;
+    }
+
+    /// Show what was left part of the way through, among the movies or the series.
+    pub fn pick_continuing(&mut self) {
+        self.groups_here().continuing = true;
+    }
+
+    /// Whether what was left part of the way through shows.
+    pub fn continuing(&self) -> bool {
+        matches!(self.tab, Tab::Movies | Tab::Series) && self.groups().continuing
+    }
+
+    /// The groups of the tab on screen, to change: leaving the open series.
+    fn groups_here(&mut self) -> &mut Groups {
+        match self.tab {
             Tab::Movies => &mut self.movies,
             Tab::Series => {
                 self.close_series();
                 &mut self.series
             }
             _ => &mut self.channels,
-        };
-        groups.picked = group;
+        }
     }
 
     /// The channels of the group picked among them (all shown, when none), as the
@@ -173,23 +196,27 @@ impl Browse {
     pub fn close_series(&mut self) {
         self.open_series = None;
         self.episodes = Load::Idle;
+        self.carry_on = None;
         self.list_key = None;
     }
 
     /// What the rail lists, worked out again only when something it depends on changed.
-    pub fn refresh(&mut self, catalog: Option<&Catalog>, marks: &Marks, source: &str) {
+    pub fn refresh(&mut self, catalog: Option<&Catalog>, marks: &Marks, progress: &Progress, source: &str) {
         let Some(catalog) = catalog else {
             self.list.clear();
             return;
         };
         let group = self.groups().picked.clone();
+        let continuing = self.continuing();
         let episodes = self.open_series.and_then(|i| Some((i, self.episodes.ready()?.len())));
         let key = ListKey {
             tab: self.tab,
             group: group.clone(),
+            continuing,
             search: self.search.clone(),
             size: catalog.channels.len() + catalog.movies.len() + catalog.series.len(),
             marks: marks.revision(),
+            progress: if continuing { progress.revision() } else { 0 },
             episodes,
         };
         if self.list_key.as_ref() == Some(&key) {
@@ -200,12 +227,29 @@ impl Browse {
         let in_group = |g: &String| group.as_ref().map_or_else(|| self.shows(g), |picked| g == picked);
         let by_key = |k: &str| catalog.channels.iter().position(|c| c.key == k);
         let named = |i: &usize| matches(&catalog.channels[*i].name) && self.shows(&catalog.channels[*i].group);
+        let left = if continuing { progress.left(source) } else { Vec::new() };
         self.list = match self.tab {
             Tab::Live => indices(&catalog.channels, |c| in_group(&c.group) && matches(&c.name)),
             Tab::Favorites => marks.favorites(source).filter_map(by_key).filter(named).collect(),
             Tab::Recent => marks.recent(source).filter_map(by_key).filter(named).collect(),
+            Tab::Movies if continuing => left
+                .iter()
+                .filter_map(|l| match l {
+                    Left::Movie(key) => catalog.movies.iter().position(|m| &m.key == key),
+                    Left::Episode { .. } => None,
+                })
+                .filter(|&i| matches(&catalog.movies[i].name))
+                .collect(),
             Tab::Movies => indices(&catalog.movies, |m| in_group(&m.group) && matches(&m.name)),
             Tab::Series if self.open_series.is_some() => (0..episodes.map_or(0, |(_, n)| n)).collect(),
+            Tab::Series if continuing => left
+                .iter()
+                .filter_map(|l| match l {
+                    Left::Episode { series, .. } => catalog.series.iter().position(|s| &s.key == series),
+                    Left::Movie(_) => None,
+                })
+                .filter(|&i| matches(&catalog.series[i].name))
+                .collect(),
             Tab::Series => indices(&catalog.series, |s| in_group(&s.group) && matches(&s.name)),
         };
         self.list_key = Some(key);
@@ -290,7 +334,7 @@ http://line.tv:80/series/user/pass/102.mkv
     }
 
     fn listed(b: &mut Browse, c: &Catalog) -> Vec<String> {
-        b.refresh(Some(c), &Marks::default(), "src");
+        b.refresh(Some(c), &Marks::default(), &Progress::default(), "src");
         b.list.iter().map(|&i| c.channels[i].name.clone()).collect()
     }
 
@@ -345,7 +389,7 @@ http://line.tv:80/series/user/pass/102.mkv
     #[test]
     fn zaps_around_the_list() {
         let (mut b, c) = browsing(Tab::Live);
-        b.refresh(Some(&c), &Marks::default(), "src");
+        b.refresh(Some(&c), &Marks::default(), &Progress::default(), "src");
         let live = |k: &str| Some(Playing::Live { key: c.channels.iter().find(|ch| ch.name == k).unwrap().key.clone() });
         let key = |k: &str| live(k).map(|p| p.key().to_string()).unwrap();
         assert_eq!(b.step(&c, Some(&key("News Two")), 1), live("Sport One"));
@@ -359,7 +403,7 @@ http://line.tv:80/series/user/pass/102.mkv
         let (mut b, c) = browsing(Tab::Series);
         b.open_series = Some(0);
         b.episodes = Load::Ready(c.series[0].episodes.clone());
-        b.refresh(Some(&c), &Marks::default(), "src");
+        b.refresh(Some(&c), &Marks::default(), &Progress::default(), "src");
         let first = b.episode(&c, 0).unwrap();
         let second = b.next_episode(&c, &first).unwrap();
         assert_eq!(second, b.episode(&c, 1).unwrap());

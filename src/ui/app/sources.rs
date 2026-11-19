@@ -89,6 +89,7 @@ impl App {
                 log_warn!("episodes: {e}");
             }
             self.browse.relist();
+            self.carry_on(ctx);
         }
         if self.guide.poll()
             && let Load::Failed(e) = &self.guide

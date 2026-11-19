@@ -29,6 +29,9 @@ pub enum Act {
     OpenSeries(Option<usize>),
     /// An episode of the open series, by its index there.
     PlayEpisode(usize),
+    /// Open a series (its index in the catalog) and carry on with the episode
+    /// watched last.
+    CarryOn(usize),
     PlayCatchup(String, Programme),
     GoLive,
     TogglePause,
@@ -44,6 +47,8 @@ pub enum Act {
     GuideChannels(Option<Option<String>>),
     Tab(Tab),
     Group(Option<String>),
+    /// Show what was left part of the way through, among the movies or the series.
+    Continuing,
     /// Put a playlist group with the channels, movies or series; None leaves it to
     /// what it looks like.
     Shelve(String, Option<Shelf>),
@@ -99,6 +104,7 @@ impl App {
             Act::OpenSeries(Some(i)) => self.open_series(ctx, i),
             Act::OpenSeries(None) => self.browse.close_series(),
             Act::PlayEpisode(i) => self.play_episode(ctx, i),
+            Act::CarryOn(i) => self.carry_on_series(ctx, i),
             Act::PlayCatchup(key, programme) => self.play(ctx, Playing::Catchup { key, programme }),
             Act::GoLive => self.go_live(ctx),
             Act::TogglePause => self.set_paused(!self.session.paused()),
@@ -115,6 +121,7 @@ impl App {
             Act::MoveFavorite(key, target, after) => self.move_favorite(&key, &target, after),
             Act::Tab(t) => self.show_tab(t),
             Act::Group(g) => self.pick_group(g),
+            Act::Continuing => self.browse.pick_continuing(),
             Act::Shelve(group, shelf) => self.shelve(ctx, group, shelf),
             Act::Hide(group, hide) => self.hide(group, hide),
             Act::ShowHidden(show) => self.ask_show_hidden(show),

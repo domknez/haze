@@ -184,7 +184,7 @@ impl App {
     /// What the rail lists, worked out again only when something it depends on changed.
     pub fn refresh_list(&mut self) {
         let source = self.source_id();
-        self.browse.refresh(self.catalog.ready(), &self.marks, &source);
+        self.browse.refresh(self.catalog.ready(), &self.marks, &self.progress, &source);
     }
 
     fn sync_appearance(&mut self, ctx: &egui::Context) {
