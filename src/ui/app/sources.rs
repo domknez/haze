@@ -17,26 +17,22 @@ impl App {
         self.browse.reset();
         self.browse.hidden = source.hidden.clone();
         self.guide = Load::Idle;
+        self.refresh = Default::default();
         match catalog {
             Some(c) => {
                 self.catalog = Load::Ready(c);
                 self.catalog_arrived(ctx);
             }
-            None => {
-                let upgrades = self.upgrades.0.clone();
-                self.catalog = Load::start(ctx, move || {
-                    let (catalog, upgrade) = library::fetch_upgrading(&source)?;
-                    if let Some(u) = upgrade {
-                        let _ = upgrades.send(u);
-                    }
-                    Ok(catalog)
-                });
-            }
+            None => self.catalog = self.load_catalog(ctx, source),
         }
     }
 
     /// The catalog came in: count its groups, load its guide, resume the last channel.
     fn catalog_arrived(&mut self, ctx: &egui::Context) {
+        if self.catalog.ready().is_none() {
+            return;
+        }
+        self.first_loaded();
         let Some(c) = self.catalog.ready() else { return };
         self.browse.catalog_arrived(c, self.prefs.group.as_ref());
         if let Some(url) = c.epg_url.clone() {

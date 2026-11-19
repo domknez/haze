@@ -139,6 +139,9 @@ impl App {
             if i.consume_key(cmd, Key::L) {
                 acts.push(Act::ToggleRail);
             }
+            if i.consume_key(cmd, Key::R) {
+                acts.push(Act::Refresh);
+            }
             // ⌘, on macOS, Ctrl+, elsewhere: where every app keeps its settings.
             if i.consume_key(cmd, Key::Comma) && self.panels.popup != Some(Popup::Settings) {
                 acts.push(Act::Popup(Some(Popup::Settings)));

@@ -171,6 +171,19 @@ impl App {
             ui.label(egui::RichText::new(parts.join(" · ")).font(typography::meta()).color(p.faint));
         }
         ui.add_space(6.0);
+        if self.source().is_some() {
+            let status = if self.refresh.running() || self.catalog.is_loading() {
+                "Loading…".to_string()
+            } else {
+                match self.refresh.loaded_at.and_then(|t| t.elapsed().ok()) {
+                    Some(age) => format!("Updated {}", crate::ui::app::ago(age)),
+                    None => "Load the channels and the guide again".into(),
+                }
+            };
+            if menu_row(ui, Icon::FromStart, "Refresh now", Some(&status), false).clicked() {
+                acts.push(Act::Refresh);
+            }
+        }
         if menu_row(ui, Icon::Plus, "Add source…", None, false).clicked() {
             acts.push(Act::AddSource);
         }
@@ -268,6 +281,7 @@ impl App {
             ("[ ]".to_string(), "picture earlier / later"),
             (format!("{cmd}F"), "search"),
             (format!("{cmd},"), "settings"),
+            (format!("{cmd}R"), "refresh the channels"),
             (format!("{cmd}1–5"), "tabs"),
         ] {
             ui.horizontal(|ui| {

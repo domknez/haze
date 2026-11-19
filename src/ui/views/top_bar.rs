@@ -101,7 +101,7 @@ impl App {
         let tag_rect = widgets::tag(ui.painter(), pos2(r.left() + 7.0, r.center().y), tag, p.accent, p.on_accent);
         ui.painter().galley(pos2(tag_rect.right() + 8.0, r.center().y - g.size().y / 2.0), g, p.text);
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(12.0, 12.0)), Icon::Chevrons, p.dim);
-        if self.catalog.is_loading() {
+        if self.catalog.is_loading() || self.refresh.running() {
             widgets::spinner(ui, pos2(r.right() - 30.0, r.center().y), 5.0, p.accent);
         }
         resp.on_hover_cursor(egui::CursorIcon::PointingHand)

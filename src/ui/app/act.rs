@@ -54,6 +54,8 @@ pub enum Act {
     /// Set a PIN for hidden groups, or remove it (asking for it).
     Pin(bool),
     SwitchSource(usize),
+    /// Load the channels and the guide of the source in use again.
+    Refresh,
     Popup(Option<Popup>),
     Output(Output),
     Volume(f32),
@@ -118,6 +120,10 @@ impl App {
             Act::ShowHidden(show) => self.ask_show_hidden(show),
             Act::Pin(set) => self.ask_pin(set),
             Act::SwitchSource(i) => self.pick_source(ctx, i),
+            Act::Refresh => {
+                self.panels.popup = None;
+                self.start_refresh(ctx, true);
+            }
             Act::AddSource => self.open_form(SourceForm::new()),
             Act::EditSource(i) => {
                 if let Some(form) = self.sources.get(i).map(SourceForm::edit) {

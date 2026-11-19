@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The channels and the guide load again in the background every six hours, without
+  stopping what plays; ⌘R (Ctrl+R) or Refresh now in the source menu does it at
+  once, and the menu says when they were last updated
+
 ## 0.1.6 (2026-11-19)
 
 - The display no longer dims or blanks under a playing picture on Windows and Linux

@@ -68,6 +68,9 @@ Secret Service), never in the settings files.
 - **Zapping:** ↑ ↓ (or Page Up / Down) through the list on screen; the last channel
   comes back on the next start
 - **Live channels reconnect** by themselves when the provider drops the stream
+- **Always fresh:** the channels and the guide load again in the background every six
+  hours (⌘R, or Refresh now in the source menu, does it at once), without stopping
+  what plays
 - **The display stays on** while a picture plays, on macOS, Windows and the Linux
   desktops (KDE, GNOME, Xfce and others that let apps keep the screen from blanking)
 - **Audio tracks and subtitles:** pick the language when a channel has several; text
@@ -79,7 +82,7 @@ Secret Service), never in the settings files.
   black bars; A sets the shape (16:9, 4:3) of a stream that has it wrong
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
   G for the guide,
-  ⌘F to search, ⌘1–5 for the tabs, ⌘, for settings (Ctrl on Windows and Linux)
+  ⌘F to search, ⌘1–5 for the tabs, ⌘, for settings, ⌘R to refresh (Ctrl on Windows and Linux)
 
 **Listening anywhere**
 
