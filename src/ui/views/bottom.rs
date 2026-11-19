@@ -63,7 +63,7 @@ impl App {
             let logo = channel.as_ref().and_then(|c| c.logo.as_deref()).and_then(|u| self.logos.get(u));
             widgets::logo_tile(ui.painter(), logo_rect, &name, logo.map(|l| l.0), logo.map(|l| l.1));
             ui.add_space(6.0);
-            let controls_w = 420.0;
+            let controls_w = 454.0;
             let text_w = (ui.available_width() - controls_w).max(120.0);
             ui.vertical(|ui| {
                 ui.set_width(text_w);
@@ -90,6 +90,9 @@ impl App {
         let full = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
         if widgets::icon_button(ui, if full { Icon::Windowed } else { Icon::Fullscreen }, 34.0, p.dim, "Full screen (F)").clicked() {
             acts.push(Act::ToggleFullscreen);
+        }
+        if widgets::icon_button(ui, Icon::Mini, 34.0, p.dim, "Mini player (P)").clicked() {
+            acts.push(Act::ToggleMini);
         }
         // Volume: a slider and the mute button.
         let mut volume = if self.prefs.muted { 0.0 } else { self.prefs.volume };

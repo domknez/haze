@@ -72,6 +72,8 @@ Secret Service), never in the settings files.
 - **Audio tracks and subtitles:** pick the language when a channel has several; text
   subtitles from the stream (SubRip, ASS, WebVTT, MP4 text), or drop an `.srt` on the
   window (UTF-8 or Windows-1250)
+- **Mini player** (P): the picture alone in a small window that stays above the
+  others; drag it anywhere, P, Esc or a double-click bring the full window back
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
   G for the guide,
   ⌘F to search, ⌘1–5 for the tabs

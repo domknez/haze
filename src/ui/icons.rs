@@ -33,6 +33,8 @@ pub enum Icon {
     Fullscreen,
     /// Corner brackets pointing in: leave full screen.
     Windowed,
+    /// A screen with a small one in its corner: the mini player.
+    Mini,
     /// An arrow curling back to a bar: watch from the start.
     FromStart,
     /// An arrow down into a tray: an update to install.
@@ -220,6 +222,11 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
                 let (ex, ey) = if out { (dx, dy) } else { (-dx, -dy) };
                 painter.add(Shape::line(vec![corner + vec2(0.0, ey * w * 0.22), corner, corner + vec2(ex * w * 0.22, 0.0)], s));
             }
+        }
+        Icon::Mini => {
+            let s = Stroke::new(stroke.width * 0.9, color);
+            painter.add(Shape::closed_line(vec![p(r, 0.08, 0.2), p(r, 0.92, 0.2), p(r, 0.92, 0.8), p(r, 0.08, 0.8)], s));
+            painter.rect_filled(Rect::from_min_max(p(r, 0.5, 0.5), p(r, 0.8, 0.7)), 1.0, color);
         }
         Icon::FromStart => {
             let c = p(r, 0.54, 0.54);

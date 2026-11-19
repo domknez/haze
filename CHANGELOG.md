@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A mini player: P (or the button beside full screen) keeps the picture alone in a
+  small window above the others; P, Esc or a double-click bring the full window back
+
 ## 0.1.3 (2026-11-19)
 
 - Updates are signed: haze installs a new version only when its checksums carry the

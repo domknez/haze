@@ -1,9 +1,10 @@
 //! The app's state and what happens each frame. What the viewer's actions do is in
 //! [`act`]; playing in [`playback`]; sources, groups and favourites in [`sources`];
-//! keys, the pointer and remote controls in [`input`].
+//! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`].
 
 mod act;
 mod input;
+mod mini;
 mod playback;
 mod sources;
 
@@ -99,6 +100,8 @@ pub struct App {
     pub updates: super::updates::Updates,
     /// Held while a picture plays, so the display doesn't dim or sleep under it.
     screen: Option<crate::awake::Awake>,
+    /// The picture alone in a small window above the others.
+    mini: mini::Mini,
 }
 
 impl App {
@@ -114,6 +117,7 @@ impl App {
         let mut app = App {
             updates: super::updates::Updates::new(prefs.auto_update),
             screen: None,
+            mini: mini::Mini::Off,
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -240,6 +244,7 @@ impl eframe::App for App {
         self.sync_appearance(&ctx);
         self.logos.begin_frame();
         self.poll(&ctx);
+        self.settle_mini(&ctx);
         self.pointer.track(&ctx);
         let mut acts = Vec::new();
         self.shortcuts(&ctx, &mut acts);
@@ -259,6 +264,13 @@ impl eframe::App for App {
 
         if self.sources.is_empty() && self.form.is_none() {
             self.welcome(&ctx, screen, &mut acts);
+        } else if self.mini_on() {
+            self.panels.controls_shown = false;
+            if self.controls_visible(&ctx) {
+                self.mini_controls(&ctx, screen, &mut acts);
+            } else {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+            }
         } else if self.controls_visible(&ctx) {
             self.panels.controls_shown = true;
             self.top_bar(&ctx, screen, &mut acts);

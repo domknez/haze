@@ -13,7 +13,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 /// Keys that act on their own (no modifier), unless a text field has the keyboard.
-const KEYS: [(Key, fn() -> Act); 13] = [
+const KEYS: [(Key, fn() -> Act); 14] = [
     (Key::Space, || Act::TogglePause),
     (Key::ArrowDown, || Act::Step(1)),
     (Key::PageDown, || Act::Step(1)),
@@ -22,6 +22,7 @@ const KEYS: [(Key, fn() -> Act); 13] = [
     (Key::ArrowRight, || Act::Seek(10.0)),
     (Key::ArrowLeft, || Act::Seek(-10.0)),
     (Key::F, || Act::ToggleFullscreen),
+    (Key::P, || Act::ToggleMini),
     (Key::M, || Act::ToggleMute),
     (Key::L, || Act::ToggleRail),
     (Key::G, || Act::ToggleGuide),
@@ -147,7 +148,8 @@ impl App {
         });
     }
 
-    /// Esc closes what's on top: a menu or dialog, then the guide, then full screen.
+    /// Esc closes what's on top: a menu or dialog, then the guide, then the mini player
+    /// or full screen.
     fn escape(&mut self, full: bool) -> Option<Act> {
         if self.panels.popup.is_some() || self.form.is_some() || self.pin.is_some() {
             self.form = None;
@@ -155,6 +157,8 @@ impl App {
             Some(Act::Popup(None))
         } else if self.panels.guide_open {
             Some(Act::ToggleGuide)
+        } else if self.mini_on() {
+            Some(Act::ToggleMini)
         } else {
             full.then_some(Act::ToggleFullscreen)
         }

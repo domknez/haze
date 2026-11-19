@@ -3,6 +3,7 @@
 
 use crate::media::Status;
 use crate::ui::app::{Act, App};
+use crate::ui::icons::Icon;
 use crate::ui::style::{colors, metrics, typography};
 use crate::ui::{video, widgets};
 use eframe::egui::{self, Align2, Color32, Rect, Sense, vec2};
@@ -61,9 +62,14 @@ const TOAST: Duration = Duration::from_secs(4);
 impl App {
     pub fn stage(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let area = ui.max_rect();
-        let resp = ui.interact(area, ui.scope_id().with("stage"), Sense::click());
+        let mini = self.mini_on();
+        // The mini window has no title bar: it moves by the picture.
+        let resp = ui.interact(area, ui.scope_id().with("stage"), if mini { Sense::click_and_drag() } else { Sense::click() });
+        if resp.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
         if resp.double_clicked() {
-            acts.push(Act::ToggleFullscreen);
+            acts.push(if mini { Act::ToggleMini } else { Act::ToggleFullscreen });
         } else if resp.clicked() && self.panels.popup.is_some() {
             acts.push(Act::Popup(None));
         }
@@ -177,6 +183,36 @@ impl App {
                 });
             },
         );
+    }
+
+    /// Over the mini player, while the pointer moves: pause and the way back.
+    pub fn mini_controls(&self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
+        let p = colors();
+        let paused = self.session.player.as_ref().is_some_and(|pl| pl.paused());
+        egui::Area::new(egui::Id::unique("mini-controls"))
+            .order(egui::Order::Middle)
+            .pivot(Align2::CENTER_BOTTOM)
+            .fixed_pos(egui::pos2(screen.center().x, screen.bottom() - metrics::GAP))
+            .show(ctx, |ui| {
+                widgets::glass(18).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if widgets::round_button(
+                            ui,
+                            if paused { Icon::Play } else { Icon::Pause },
+                            36.0,
+                            p.text,
+                            p.glass_strong.to_opaque(),
+                        )
+                        .clicked()
+                        {
+                            acts.push(Act::TogglePause);
+                        }
+                        if widgets::icon_button(ui, Icon::Mini, 34.0, p.text, "Back to the full window (P)").clicked() {
+                            acts.push(Act::ToggleMini);
+                        }
+                    });
+                });
+            });
     }
 
     pub fn toast_view(&mut self, ctx: &egui::Context, screen: Rect) {

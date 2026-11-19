@@ -62,6 +62,8 @@ pub enum Act {
     PictureDelay(Option<i32>),
     ToggleMute,
     ToggleFullscreen,
+    /// Go to the mini player, or back to the full window.
+    ToggleMini,
     ToggleRail,
     /// Open or close the guide.
     ToggleGuide,
@@ -125,7 +127,12 @@ impl App {
             Act::ToggleGroups => self.panels.groups_open = !self.panels.groups_open,
             Act::ToggleGuide => self.toggle_guide(),
             Act::GuideChannels(pick) => self.guide_channels(pick),
+            Act::ToggleMini => self.toggle_mini(ctx),
             Act::ToggleFullscreen => {
+                // From the mini player, full screen goes through the full window.
+                if self.mini_on() {
+                    self.toggle_mini(ctx);
+                }
                 let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!full));
             }
