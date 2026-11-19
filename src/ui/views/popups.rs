@@ -311,7 +311,7 @@ impl App {
             ("L".to_string(), "channel list"),
             ("G".to_string(), "guide"),
             ("[ ]".to_string(), "picture earlier / later"),
-            (format!("{cmd}F"), "search (the guide, while it's open)"),
+            (format!("{cmd}F"), "search (the guide too)"),
             (format!("{cmd},"), "settings"),
             (format!("{cmd}R"), "refresh the channels"),
             (format!("{cmd}1–5"), "tabs"),
