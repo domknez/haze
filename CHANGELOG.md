@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-11-19)
+
 - The display no longer dims or blanks under a playing picture on Windows and Linux
   either
 
