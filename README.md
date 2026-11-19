@@ -57,7 +57,8 @@ Secret Service), never in the settings files.
 - **Guide:** XMLTV (gzipped or not, read as a stream so huge provider guides stay
   light), the programme on now with its progress and a strip of what's next, and the
   **full guide** (G): the channels of any group, or the favourites, against the time,
-  half a day back and a day ahead, to play a channel or a programme from the archive
+  half a day back and a day ahead, to play a channel or a programme from the archive;
+  **search the guide** (⌘F while it's open) for a programme by name on every channel
 - **Catch-up:** watch a programme that already aired from the strip, or the one on now
   *from the start* — Xtream archives, and M3U `catchup` (`default`, `append`, `shift`,
   `flussonic`, with `catchup-source` templates)

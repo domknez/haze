@@ -279,11 +279,110 @@ impl Guide {
         let i = list.partition_point(|p| p.stop <= now);
         list.get(i).filter(|p| p.is_on(now)).map(|p| (i, p))
     }
+
+    /// The programmes whose title has `needle` in it (case and accents aside), on
+    /// `channels` (by index, those `keep` lets through) that ended no earlier than
+    /// `since`: those on at `now` first, then those to come by when they start,
+    /// then those gone, the latest first. At most `limit` of them.
+    pub fn search(
+        &self,
+        channels: &[Channel],
+        keep: impl Fn(&Channel) -> bool,
+        needle: &str,
+        now: i64,
+        since: i64,
+        limit: usize,
+    ) -> Vec<(usize, Programme)> {
+        let needle = fold(needle.trim());
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        // Channels sharing a guide id (HD and SD of one) show it once.
+        let mut seen = std::collections::HashSet::new();
+        let mut hits: Vec<(usize, &Programme)> = Vec::new();
+        for (i, channel) in channels.iter().enumerate() {
+            let Some(id) = channel.epg_id.as_deref() else { continue };
+            if !keep(channel) || !seen.insert(id) {
+                continue;
+            }
+            let list = self.for_channel(channel);
+            let from = list.partition_point(|p| p.stop < since);
+            hits.extend(list[from..].iter().filter(|p| has_folded(&p.title, &needle)).map(|p| (i, p)));
+        }
+        let rank = |p: &Programme| match () {
+            _ if p.is_on(now) => (0, p.start),
+            _ if p.start > now => (1, p.start),
+            _ => (2, -p.start),
+        };
+        hits.sort_by_key(|(_, p)| rank(p));
+        hits.into_iter().take(limit).map(|(i, p)| (i, p.clone())).collect()
+    }
+}
+
+/// Whether `text` has `needle` (folded already) in it, folded. Most titles are
+/// plain ASCII: those are matched as they are, without a folded copy.
+fn has_folded(text: &str, needle: &str) -> bool {
+    if text.is_ascii() {
+        let (text, needle) = (text.as_bytes(), needle.as_bytes());
+        needle.len() <= text.len() && text.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+    } else {
+        fold(text).contains(needle)
+    }
+}
+
+/// `text` for matching: lowercase, with the accents of the region's letters gone.
+pub fn fold(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'č' | 'ć' | 'ç' => 'c',
+            'š' => 's',
+            'ž' => 'z',
+            'đ' => 'd',
+            'á' | 'à' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'ö' | 'ő' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' | 'ű' => 'u',
+            c => c,
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_programmes_by_title() {
+        let channel = |name: &str, epg: &str| Channel {
+            key: name.into(),
+            name: name.into(),
+            number: None,
+            logo: None,
+            group: "G".into(),
+            url: String::new(),
+            epg_id: Some(epg.into()),
+            catchup: None,
+            user_agent: None,
+            referrer: None,
+        };
+        let prog = |start: i64, title: &str| Programme { start, stop: start + 100, title: title.into(), desc: String::new() };
+        let channels = [channel("One", "1"), channel("One HD", "1"), channel("Two", "2"), channel("Hidden", "3")];
+        let guide = Guide {
+            programmes: HashMap::from([
+                ("1".into(), vec![prog(0, "Old Dnevnik"), prog(800, "Dnevnik"), prog(1000, "Dnevnik"), prog(1200, "Film")]),
+                ("2".into(), vec![prog(900, "Večernji DNEVNIK"), prog(1100, "Dnevnik 2")]),
+                ("3".into(), vec![prog(1000, "Dnevnik")]),
+            ]),
+        };
+        let found = guide.search(&channels, |c| c.name != "Hidden", "dnevnik", 950, 500, 10);
+        let found: Vec<(usize, i64)> = found.iter().map(|(i, p)| (*i, p.start)).collect();
+        // On now, then to come, then gone (the latest first); too old and hidden left out.
+        assert_eq!(found, [(2, 900), (0, 1000), (2, 1100), (0, 800)]);
+        assert!(guide.search(&channels, |_| true, "  ", 950, 0, 10).is_empty());
+        assert_eq!(guide.search(&channels, |_| true, "vecernji", 950, 0, 10).len(), 1);
+    }
 
     #[test]
     fn tidies_names() {

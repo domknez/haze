@@ -110,6 +110,7 @@ pub struct App {
     mini: mini::Mini,
     /// Loading the channels and the guide again, every few hours.
     pub refresh: refresh::Refresh,
+    pub guide_search: crate::ui::views::GuideSearch,
     pub sleep: sleep::Sleep,
 }
 
@@ -128,6 +129,7 @@ impl App {
             screen: None,
             mini: mini::Mini::Off,
             refresh: refresh::Refresh::default(),
+            guide_search: Default::default(),
             sleep: sleep::Sleep::default(),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),

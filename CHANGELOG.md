@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Search the guide: a programme by name on every channel, what's on now first, then
+  what's still to come and what's in the archive; ⌘F (Ctrl+F) while the guide is open
 - Sleep timer, by the volume: playing stops after 15 minutes to an hour and a half,
   or when the programme on ends, the sound fading out over the last half minute
 - Continue watching, among the categories of movies and series: what you're in the

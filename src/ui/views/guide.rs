@@ -1,6 +1,7 @@
 //! The guide: the channels of the group picked against the time, with what's on
 //! each before, now and after. A click on a channel or on what's on now plays the
-//! channel; one on a programme from its archive plays that.
+//! channel; one on a programme from its archive plays that. A search finds
+//! programmes by name on every channel.
 
 use crate::iptv::model::{Catalog, Channel, Guide, Programme};
 use crate::iptv::time;
@@ -20,6 +21,20 @@ const RULER: f32 = 26.0;
 /// How far back (about as far as archives reach) and ahead the guide goes.
 const BEFORE: i64 = 12 * 3600;
 const AFTER: i64 = 24 * 3600;
+/// The column of days and hours of what a search found.
+const WHEN: f32 = 170.0;
+/// The most programmes a search lists.
+const HITS: usize = 200;
+
+/// A search of the guide, and what it found.
+#[derive(Default)]
+pub struct GuideSearch {
+    pub text: String,
+    /// The programmes found (with the index of their channel), and what for: the
+    /// text and the minute (what's on now moves on).
+    hits: Vec<(usize, Programme)>,
+    done_for: Option<(String, i64)>,
+}
 
 impl App {
     pub fn guide_view(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
@@ -68,8 +83,16 @@ impl App {
                 if widgets::icon_button(ui, Icon::Close, 28.0, p.faint, "Close the guide (G)").clicked() {
                     acts.push(Act::ToggleGuide);
                 }
-                if widgets::pill(ui, None, "Now", false).clicked() {
+                if self.guide_search.text.trim().is_empty() && widgets::pill(ui, None, "Now", false).clicked() {
                     self.panels.guide_jump = true;
+                }
+                ui.add_space(6.0);
+                let field = widgets::filter_field(ui, &mut self.guide_search.text, "Search the guide", 260.0);
+                if std::mem::take(&mut self.panels.focus_search) {
+                    field.request_focus();
+                }
+                if field.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.guide_search.text.clear();
                 }
             });
         });
@@ -85,6 +108,9 @@ impl App {
             ui.label(egui::RichText::new(text).font(typography::body()).color(p.dim));
             return;
         };
+        if !self.guide_search.text.trim().is_empty() {
+            return self.guide_results(ui, acts);
+        }
         let channels: Vec<&Channel> = self.guide_rows(catalog).into_iter().map(|i| &catalog.channels[i]).collect();
         let now = time::now();
         let t0 = (now - BEFORE) / 1800 * 1800;
@@ -108,6 +134,63 @@ impl App {
                 }
             }
             grid.ruler(ui.painter());
+        });
+    }
+
+    /// What the search found: on now, still to come, and from the archive.
+    fn guide_results(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        let p = colors();
+        let now = time::now();
+        let (Some(catalog), Some(guide)) = (self.catalog.ready(), self.guide.ready()) else { return };
+        let wanted = (self.guide_search.text.trim().to_string(), now / 60);
+        if self.guide_search.done_for.as_ref() != Some(&wanted) {
+            let keep = |c: &Channel| self.browse.shows(&c.group);
+            self.guide_search.hits = guide.search(&catalog.channels, keep, &wanted.0, now, now - BEFORE, HITS);
+            self.guide_search.done_for = Some(wanted);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(60 - (now % 60) as u64));
+        let hits = &self.guide_search.hits;
+        if hits.is_empty() {
+            ui.add_space(16.0);
+            ui.label(egui::RichText::new("Nothing in the guide by that name.").font(typography::body()).color(p.dim));
+            return;
+        }
+        let playing = self.playing_channel().map(|c| c.key.clone());
+        egui::ScrollArea::vertical().id_salt("guide-results").auto_shrink([false, false]).show(ui, |ui| {
+            let mut section = None;
+            for (n, (i, prog)) in hits.iter().enumerate() {
+                let channel = &catalog.channels[*i];
+                let here = if prog.is_on(now) {
+                    "On now"
+                } else if prog.start > now {
+                    "Coming up"
+                } else {
+                    "Earlier"
+                };
+                if section != Some(here) {
+                    if section.is_some() {
+                        ui.add_space(8.0);
+                    }
+                    section = Some(here);
+                    ui.label(egui::RichText::new(here.to_uppercase()).font(typography::meta()).color(p.faint));
+                    ui.add_space(2.0);
+                }
+                // A channel shows on many rows: each row keeps its own ids.
+                ui.push_id(n, |ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
+                    let name = Rect::from_min_size(r.min, vec2(NAMES - 8.0, ROW));
+                    if channel_name(ui, &mut self.logos, name, channel, playing.as_deref() == Some(channel.key.as_str())).clicked() {
+                        acts.push(Act::PlayChannel(channel.key.clone()));
+                    }
+                    // The programme, then its day and hours.
+                    let cell = Rect::from_min_max(pos2(name.right() + 8.0, r.top() + 3.0), pos2(r.right() - WHEN, r.bottom() - 3.0));
+                    programme_cell(ui, cell, channel, prog, now, acts);
+                    let when = format!("{} · {}–{}", day(prog.start, now), super::bottom::hhmm(prog.start), super::bottom::hhmm(prog.stop));
+                    let color = if prog.is_on(now) { p.accent } else { p.dim };
+                    let text = widgets::ellipsize(ui, &when, typography::meta(), color, WHEN - 16.0);
+                    ui.painter().galley(pos2(cell.right() + 12.0, cell.center().y - text.size().y / 2.0), text, color);
+                });
+            }
         });
     }
 
