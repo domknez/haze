@@ -179,7 +179,10 @@ pub fn filter_field(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> R
                 icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), Icon::Search, p.faint);
                 let edit = ui.add_sized(
                     [width - if text.is_empty() { 48.0 } else { 76.0 }, 22.0],
+                    // Its id by its hint, not its place: a field that moves (a button
+                    // beside it comes and goes) keeps the keyboard.
                     egui::TextEdit::singleline(text)
+                        .id_salt(hint)
                         .hint_text(egui::RichText::new(hint).color(p.faint))
                         .frame(egui::Frame::NONE)
                         .font(typography::body())
