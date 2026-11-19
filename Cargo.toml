@@ -52,9 +52,13 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
 windows-native-keyring-store = { version = "1", default-features = false }
+# Keeping the display on while a picture plays.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_SystemServices", "Win32_System_Threading"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+# Asking the desktop not to blank the screen while a picture plays.
+dbus = "0.9"
 
 [features]
 # Link ffmpeg statically, from pkg-config (the macOS release, see

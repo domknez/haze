@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The display no longer dims or blanks under a playing picture on Windows and Linux
+  either
+
 ## 0.1.5 (2026-11-19)
 
 - Fill the window: Z (or Settings) lets the picture cover the window, its edges cut,

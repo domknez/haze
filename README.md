@@ -69,6 +69,8 @@ Secret Service), never in the settings files.
 - **Zapping:** ↑ ↓ (or Page Up / Down) through the list on screen; the last channel
   comes back on the next start
 - **Live channels reconnect** by themselves when the provider drops the stream
+- **The display stays on** while a picture plays, on macOS, Windows and the Linux
+  desktops (KDE, GNOME, Xfce and others that let apps keep the screen from blanking)
 - **Audio tracks and subtitles:** pick the language when a channel has several; text
   subtitles from the stream (SubRip, ASS, WebVTT, MP4 text), or drop an `.srt` on the
   window (UTF-8 or Windows-1250)
@@ -165,7 +167,7 @@ src/
   iptv/      playlists (m3u), provider logins (xtream), guides (xmltv), HTTP, time
   library/   sources, catch-up URLs, favourites, recents and progress
   media/     playback: demux → audio (drives the clock) and video (waits for it)
-  output/    local sound card and AirPlay 1/2 (shared with dust)
+  output/    local sound card and AirPlay 1/2
   ui/        egui: the stage, glass panels, menus, the add-source dialog, GPU video
 ```
 
