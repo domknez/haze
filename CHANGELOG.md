@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-11-19)
+
 - The channels and the guide load again in the background every six hours, without
   stopping what plays; ⌘R (Ctrl+R) or Refresh now in the source menu does it at
   once, and the menu says when they were last updated
