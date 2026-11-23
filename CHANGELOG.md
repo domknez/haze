@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.10 (2026-11-23)
+
 - Settings are a window now, in place of a menu: appearance, the picture, sources,
   hidden groups and the PIN, the keyboard, and updates, each with its own section;
   ⌘, (Ctrl+,) or the gear opens it, Esc or a click beside it closes it
