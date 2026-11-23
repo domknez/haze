@@ -237,7 +237,6 @@ impl App {
         self.panels.settings = page;
         if let Some(page) = page {
             self.settings_page = page;
-            self.panels.guide_open = false;
         }
     }
 

@@ -234,14 +234,15 @@ pub fn switch(ui: &Ui, id: egui::Id, rect: Rect, on: bool) {
     ui.painter().circle_filled(knob, r, Color32::WHITE);
 }
 
-/// Options side by side in a track, the picked one raised; the one clicked, if any.
-pub fn segments<T: Copy + PartialEq>(ui: &mut Ui, salt: &str, options: &[(T, &str)], picked: T, width: f32) -> Option<T> {
+/// Options side by side in a track (each with an icon, if given), the picked one
+/// raised; the one clicked, if any.
+pub fn segments<T: Copy + PartialEq>(ui: &mut Ui, salt: &str, options: &[(T, Option<Icon>, &str)], picked: T, width: f32) -> Option<T> {
     let p = colors();
     let mut clicked = None;
     let (track, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
     ui.painter().rect_filled(track, CornerRadius::same(10), p.hl);
     let w = track.width() / options.len() as f32;
-    for (i, (option, label)) in options.iter().enumerate() {
+    for (i, (option, icon, label)) in options.iter().enumerate() {
         let cell = Rect::from_min_size(pos2(track.left() + w * i as f32, track.top()), vec2(w, track.height())).shrink(3.0);
         let resp = ui.interact(cell, ui.scope_id().with((salt, i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         let on = *option == picked;
@@ -251,7 +252,14 @@ pub fn segments<T: Copy + PartialEq>(ui: &mut Ui, salt: &str, options: &[(T, &st
             ui.painter().rect_filled(cell, CornerRadius::same(8), p.hl_strong);
         }
         let font = if on { typography::small_strong() } else { typography::secondary() };
-        ui.painter().text(cell.center(), Align2::CENTER_CENTER, *label, font, if on { p.text } else { p.dim });
+        let color = if on || resp.hovered() { p.text } else { p.dim };
+        let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+        let icon_w = if icon.is_some() { 14.0 + 7.0 } else { 0.0 };
+        let x = cell.center().x - (icon_w + galley.size().x) / 2.0;
+        if let Some(icon) = icon {
+            icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 7.0, cell.center().y), vec2(14.0, 14.0)), *icon, color);
+        }
+        ui.painter().galley(pos2(x + icon_w, cell.center().y - galley.size().y / 2.0), galley, color);
         if resp.clicked() {
             clicked = Some(*option);
         }

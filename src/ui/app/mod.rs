@@ -310,9 +310,7 @@ impl eframe::App for App {
         } else if self.controls_visible(&ctx) {
             self.panels.controls_shown = true;
             self.top_bar(&ctx, screen, &mut acts);
-            if let Some(page) = self.panels.settings {
-                self.settings_view(&ctx, screen, page, &mut acts);
-            } else if self.panels.guide_open {
+            if self.panels.guide_open {
                 self.guide_view(&ctx, screen, &mut acts);
             } else {
                 if self.panels.rail_open {
@@ -321,6 +319,9 @@ impl eframe::App for App {
                 self.bottom(&ctx, screen, &mut acts);
             }
             self.popups(&ctx, screen, &mut acts);
+            if let Some(page) = self.panels.settings {
+                self.settings_view(&ctx, screen, page, &mut acts);
+            }
         } else {
             self.panels.controls_shown = false;
             ctx.set_cursor_icon(egui::CursorIcon::None);

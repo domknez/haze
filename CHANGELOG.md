@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Settings are a page now, in place of a menu: appearance, the picture, sources,
+- Settings are a window now, in place of a menu: appearance, the picture, sources,
   hidden groups and the PIN, the keyboard, and updates, each with its own section;
-  ⌘, (Ctrl+,) or the gear opens it, Esc closes it
+  ⌘, (Ctrl+,) or the gear opens it, Esc or a click beside it closes it
 
 ## 0.1.9 (2026-11-23)
 

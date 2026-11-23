@@ -1,5 +1,6 @@
-//! Settings: a page over the window, its sections down the left and the one picked
-//! on the right. ⌘, (Ctrl+, elsewhere) or the gear opens it, Esc closes it.
+//! The Settings window: its sections down the left (Appearance, Picture, Sources,
+//! Hidden groups, Keyboard, Updates), the one picked on the right. ⌘, (Ctrl+,
+//! elsewhere) or the gear opens it; Esc, ×, or a click beside it closes it.
 
 use crate::settings::Appearance;
 use crate::ui::app::{Act, App};
@@ -9,12 +10,10 @@ use crate::ui::video::Shape;
 use crate::ui::widgets;
 use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, Stroke, pos2, vec2};
 
-/// The widest the page gets.
-const WIDTH: f32 = 920.0;
+const WIDTH: f32 = 680.0;
 /// The column of sections.
-const NAV: f32 = 210.0;
-/// The widest the settings themselves get, however wide the window.
-const CONTENT: f32 = 640.0;
+const NAV: f32 = 168.0;
+const HEIGHT: f32 = 460.0;
 
 /// A section of the settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -41,83 +40,71 @@ impl Page {
             Page::Updates => "Updates",
         }
     }
-
-    fn icon(self) -> Icon {
-        match self {
-            Page::Appearance => Icon::Sun,
-            Page::Picture => Icon::Fullscreen,
-            Page::Sources => Icon::List,
-            Page::Groups => Icon::Key,
-            Page::Keys => Icon::Guide,
-            Page::Updates => Icon::Update,
-        }
-    }
 }
 
 impl App {
+    /// The Settings window, centred over the dimmed app. Hidden while a dialog it
+    /// opened (a source, the PIN) is up, and back after.
     pub fn settings_view(&mut self, ctx: &egui::Context, screen: Rect, page: Page, acts: &mut Vec<Act>) {
-        let top = screen.top() + metrics::GAP - 4.0 + metrics::TOP_BAR + metrics::GAP;
-        let width = (screen.width() - 2.0 * metrics::GAP).min(WIDTH);
-        let rect = Rect::from_min_size(pos2(screen.center().x - width / 2.0, top), vec2(width, screen.bottom() - metrics::GAP - top));
-        if rect.height() < 160.0 {
+        if self.form.is_some() || self.pin.is_some() {
             return;
         }
-        egui::Area::new(egui::Id::unique("settings")).order(egui::Order::Middle).fixed_pos(rect.min).show(ctx, |ui| {
-            widgets::popover().inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-                let inner = rect.size() - vec2(20.0, 20.0);
-                ui.set_min_size(inner);
-                ui.set_max_size(inner);
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    ui.vertical(|ui| {
-                        ui.set_width(NAV);
-                        nav(ui, page, acts);
-                    });
-                    let (line, _) = ui.allocate_exact_size(vec2(21.0, inner.y), Sense::hover());
-                    ui.painter().vline(line.center().x, line.y_range(), Stroke::new(1.0, colors().line));
-                    ui.vertical(|ui| {
-                        self.page(ui, page, acts);
-                    });
+        let p = colors();
+        let width = WIDTH.min(screen.width() - 60.0);
+        let height = HEIGHT.min(screen.height() - 140.0).max(240.0);
+        let frame = widgets::popover().fill(p.glass_strong.to_opaque()).inner_margin(egui::Margin::same(14));
+        let modal = egui::Modal::new(egui::Id::unique("settings")).frame(frame).backdrop_color(p.scrim).show(ctx, |ui| {
+            ui.set_width(width);
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Settings").font(typography::heading()).color(p.text));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if widgets::icon_button(ui, Icon::Close, 28.0, p.faint, "Close (Esc)").clicked() {
+                        acts.push(Act::Settings(None));
+                    }
+                });
+            });
+            ui.add_space(10.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                ui.vertical(|ui| {
+                    ui.set_width(NAV);
+                    nav(ui, page, acts);
+                });
+                let (line, _) = ui.allocate_exact_size(vec2(21.0, height), Sense::hover());
+                ui.painter().vline(line.center().x, line.y_range(), Stroke::new(1.0, p.line));
+                ui.vertical(|ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("settings-page", page as u8))
+                        .max_height(height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                            ui.set_width(ui.available_width() - 10.0);
+                            match page {
+                                Page::Appearance => self.appearance_page(ui, acts),
+                                Page::Picture => self.picture_page(ui, acts),
+                                Page::Sources => self.sources_page(ui, acts),
+                                Page::Groups => self.groups_page(ui, acts),
+                                Page::Keys => keys_page(ui),
+                                Page::Updates => self.updates_page(ui, acts),
+                            }
+                            ui.add_space(8.0);
+                        });
                 });
             });
         });
-    }
-
-    /// The section picked: its title, then its settings.
-    fn page(&mut self, ui: &mut egui::Ui, page: Page, acts: &mut Vec<Act>) {
-        let p = colors();
-        ui.horizontal(|ui| {
-            ui.set_height(40.0);
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(page.label()).font(typography::heading()).color(p.text));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::icon_button(ui, Icon::Close, 30.0, p.faint, "Close (Esc)").clicked() {
-                    acts.push(Act::Settings(None));
-                }
-            });
-        });
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical().id_salt(("settings-page", page as u8)).auto_shrink([false, false]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            let width = (ui.available_width() - 12.0).min(CONTENT);
-            ui.allocate_ui(vec2(width, 0.0), |ui| {
-                ui.set_width(width);
-                match page {
-                    Page::Appearance => self.appearance_page(ui, acts),
-                    Page::Picture => self.picture_page(ui, acts),
-                    Page::Sources => self.sources_page(ui, acts),
-                    Page::Groups => self.groups_page(ui, acts),
-                    Page::Keys => keys_page(ui),
-                    Page::Updates => self.updates_page(ui, acts),
-                }
-            });
-            ui.add_space(12.0);
-        });
+        if modal.should_close() {
+            acts.push(Act::Settings(None));
+        }
     }
 
     fn appearance_page(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         section(ui, "Theme");
-        let options: Vec<(Appearance, &str)> = [Appearance::System, Appearance::Light, Appearance::Dark].map(|a| (a, a.label())).into();
+        let options: Vec<(Appearance, Option<Icon>, &str)> =
+            [(Appearance::System, Icon::Settings), (Appearance::Light, Icon::Sun), (Appearance::Dark, Icon::Moon)]
+                .map(|(a, icon)| (a, Some(icon), a.label()))
+                .into();
         if let Some(a) = widgets::segments(ui, "theme", &options, self.prefs.theme, ui.available_width()) {
             acts.push(Act::Theme(a));
         }
@@ -131,7 +118,7 @@ impl App {
             acts.push(Act::Fill(!fill));
         }
         section(ui, "Shape");
-        let options: Vec<(Shape, &str)> = Shape::ALL.map(|s| (s, s.label())).into();
+        let options: Vec<(Shape, Option<Icon>, &str)> = Shape::ALL.map(|s| (s, None, s.label())).into();
         if let Some(s) = widgets::segments(ui, "shape", &options, self.session.shape, ui.available_width()) {
             acts.push(Act::Shape(s));
         }
@@ -250,41 +237,39 @@ impl App {
         if button_row(ui, &title, &self.updates.status(), label, strong) {
             acts.push(if strong { Act::InstallUpdate } else { Act::CheckForUpdates });
         }
-        if switch_row(
-            ui,
-            "Update automatically",
-            "Downloads new versions in the background; they install when haze restarts",
-            self.updates.auto,
-        ) {
+        if switch_row(ui, "Update automatically", "New versions download in the background and install on restart", self.updates.auto) {
             acts.push(Act::AutoUpdate(!self.updates.auto));
         }
     }
 }
 
-/// The sections down the left.
+/// The sections down the left, the one picked inverted, and the version under them.
 fn nav(ui: &mut egui::Ui, page: Page, acts: &mut Vec<Act>) {
     let p = colors();
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.add_space(10.0);
-        ui.label(egui::RichText::new("SETTINGS").font(typography::meta()).color(p.faint));
-    });
-    ui.add_space(14.0);
     for pg in Page::ALL {
         let on = pg == page;
-        let (r, resp) = ui.allocate_exact_size(vec2(NAV, 36.0), Sense::click());
-        if on || resp.hovered() {
-            ui.painter().rect_filled(r, CornerRadius::same(10), if on { p.hl_strong } else { p.hl });
-        }
-        let ic = Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(15.0, 15.0));
-        icons::paint(ui.painter(), ic, pg.icon(), if on { p.accent } else { p.dim });
+        let (r, resp) = ui.allocate_exact_size(vec2(NAV, 34.0), Sense::click());
+        let text = if on {
+            ui.painter().rect_filled(r, CornerRadius::same(8), p.text);
+            p.backdrop
+        } else {
+            if resp.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(8), p.hl);
+            }
+            if resp.hovered() { p.text } else { p.dim }
+        };
         let font = if on { typography::small_strong() } else { typography::secondary() };
-        ui.painter().text(pos2(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, pg.label(), font, if on { p.text } else { p.dim });
+        ui.painter().text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, pg.label(), font, text);
         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
             acts.push(Act::Settings(Some(pg)));
         }
-        ui.add_space(2.0);
+        ui.add_space(1.0);
     }
+    ui.add_space(12.0);
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new(format!("haze {}", crate::update::CURRENT)).font(typography::meta()).color(p.faint));
+    });
 }
 
 fn keys_page(ui: &mut egui::Ui) {
