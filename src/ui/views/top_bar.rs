@@ -64,10 +64,10 @@ impl App {
                                 acts.push(Act::InstallUpdate);
                             }
                         }
-                        let settings = widgets::icon_button(ui, Icon::Settings, 32.0, p.dim, "Settings");
-                        self.anchor(Popup::Settings, settings.rect);
-                        if settings.clicked() {
-                            acts.push(Act::Popup(Some(Popup::Settings)));
+                        let open = self.panels.settings.is_some();
+                        let tip = if cfg!(target_os = "macos") { "Settings (⌘,)" } else { "Settings (Ctrl+,)" };
+                        if widgets::icon_button(ui, Icon::Settings, 32.0, if open { p.text } else { p.dim }, tip).clicked() {
+                            acts.push(Act::ToggleSettings);
                         }
                         let src = self.source_pill(ui);
                         self.anchor(Popup::Sources, src.rect);

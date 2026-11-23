@@ -2,7 +2,7 @@
 //! the pointer going still, and remote controls (the AirPlay speaker's buttons,
 //! media keys, the system's Now Playing).
 
-use super::{Act, App, Popup, Tab};
+use super::{Act, App, Tab};
 use crate::media::Status;
 use crate::output::airplay::dacp::{self, Remote};
 use crate::ui::now_playing::{NowPlaying, Press};
@@ -110,7 +110,13 @@ impl App {
     /// the pointer has been still for a while.
     pub(super) fn controls_visible(&self, ctx: &egui::Context) -> bool {
         let playing = self.session.player.as_ref().is_some_and(|p| p.status() == Status::Playing && !p.paused());
-        if !playing || self.panels.popup.is_some() || self.form.is_some() || self.pin.is_some() || self.panels.focus_search {
+        if !playing
+            || self.panels.popup.is_some()
+            || self.panels.settings.is_some()
+            || self.form.is_some()
+            || self.pin.is_some()
+            || self.panels.focus_search
+        {
             return true;
         }
         let hide = Duration::from_secs_f32(metrics::IDLE_HIDE);
@@ -143,8 +149,8 @@ impl App {
                 acts.push(Act::Refresh);
             }
             // ⌘, on macOS, Ctrl+, elsewhere: where every app keeps its settings.
-            if i.consume_key(cmd, Key::Comma) && self.panels.popup != Some(Popup::Settings) {
-                acts.push(Act::Popup(Some(Popup::Settings)));
+            if i.consume_key(cmd, Key::Comma) {
+                acts.push(Act::ToggleSettings);
             }
             if i.consume_key(Modifiers::NONE, Key::Escape) {
                 acts.extend(self.escape(full));
@@ -161,13 +167,15 @@ impl App {
         });
     }
 
-    /// Esc closes what's on top: a menu or dialog, then the guide, then the mini player
+    /// Esc closes what's on top: a menu or dialog, then settings, then the guide, then the mini player
     /// or full screen.
     fn escape(&mut self, full: bool) -> Option<Act> {
         if self.panels.popup.is_some() || self.form.is_some() || self.pin.is_some() {
             self.form = None;
             self.pin = None;
             Some(Act::Popup(None))
+        } else if self.panels.settings.is_some() {
+            Some(Act::Settings(None))
         } else if self.panels.guide_open {
             Some(Act::ToggleGuide)
         } else if self.mini_on() {

@@ -224,6 +224,41 @@ pub fn ellipsize(ui: &Ui, text: &str, font: egui::FontId, color: Color32, width:
     ui.painter().layout_job(job)
 }
 
+/// An on/off switch in `rect`, its knob sliding over (`id` keeps the slide going).
+pub fn switch(ui: &Ui, id: egui::Id, rect: Rect, on: bool) {
+    let p = colors();
+    let t = ui.ctx().animate_bool_responsive(id, on);
+    ui.painter().rect_filled(rect, CornerRadius::same((rect.height() / 2.0) as u8), p.hl_strong.lerp_to_gamma(p.accent, t));
+    let r = rect.height() / 2.0 - 2.5;
+    let knob = pos2(egui::lerp(rect.left() + r + 2.5..=rect.right() - r - 2.5, t), rect.center().y);
+    ui.painter().circle_filled(knob, r, Color32::WHITE);
+}
+
+/// Options side by side in a track, the picked one raised; the one clicked, if any.
+pub fn segments<T: Copy + PartialEq>(ui: &mut Ui, salt: &str, options: &[(T, &str)], picked: T, width: f32) -> Option<T> {
+    let p = colors();
+    let mut clicked = None;
+    let (track, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
+    ui.painter().rect_filled(track, CornerRadius::same(10), p.hl);
+    let w = track.width() / options.len() as f32;
+    for (i, (option, label)) in options.iter().enumerate() {
+        let cell = Rect::from_min_size(pos2(track.left() + w * i as f32, track.top()), vec2(w, track.height())).shrink(3.0);
+        let resp = ui.interact(cell, ui.scope_id().with((salt, i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let on = *option == picked;
+        if on {
+            ui.painter().rect(cell, CornerRadius::same(8), p.glass_strong, Stroke::new(1.0, p.line), egui::StrokeKind::Inside);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(cell, CornerRadius::same(8), p.hl_strong);
+        }
+        let font = if on { typography::small_strong() } else { typography::secondary() };
+        ui.painter().text(cell.center(), Align2::CENTER_CENTER, *label, font, if on { p.text } else { p.dim });
+        if resp.clicked() {
+            clicked = Some(*option);
+        }
+    }
+    clicked
+}
+
 #[cfg(test)]
 mod tests {
     use super::initials;

@@ -1,12 +1,10 @@
 //! Menus that open from a button: where the sound plays, the sources, the channel
-//! groups, the audio track, the sleep timer, reminders, and settings.
+//! groups, the audio track, the sleep timer and reminders.
 
 use crate::output::Output;
-use crate::settings::Appearance;
 use crate::ui::app::{Act, App, Popup, Timer, sleep_left};
 use crate::ui::icons::{self, Icon};
 use crate::ui::style::{colors, typography};
-use crate::ui::video::Shape;
 use crate::ui::widgets;
 use eframe::egui::{self, Align2, CornerRadius, Rect, Sense, pos2, vec2};
 
@@ -49,7 +47,6 @@ impl App {
                             Popup::AudioTracks => self.tracks_menu(ui, acts),
                             Popup::Sleep => self.sleep_menu(ui, acts),
                             Popup::Reminders => self.reminders_menu(ui, acts),
-                            Popup::Settings => self.settings_menu(ui, acts),
                             Popup::GuideChannels => {}
                         });
                 });
@@ -95,7 +92,7 @@ impl App {
     }
 
     /// Picture delay for the output in use: − value +, the value resets it.
-    fn picture_delay_row(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+    pub(super) fn picture_delay_row(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
         let p = colors();
         let ms = self.picture_delay();
         ui.horizontal(|ui| {
@@ -292,86 +289,6 @@ impl App {
                     .font(typography::secondary())
                     .color(p.faint),
             );
-        }
-    }
-
-    fn settings_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        heading(ui, "Appearance");
-        for a in Appearance::ALL {
-            let icon = match a {
-                Appearance::System => Icon::Settings,
-                Appearance::Dark => Icon::Moon,
-                Appearance::Light => Icon::Sun,
-            };
-            if menu_row(ui, icon, a.label(), None, self.prefs.theme == a).clicked() {
-                acts.push(Act::Theme(a));
-            }
-        }
-        ui.add_space(6.0);
-        heading(ui, "Picture");
-        let fill = self.prefs.fill;
-        if menu_row(ui, Icon::Fullscreen, "Fill the window", Some("Cuts the edges instead of black bars"), fill).clicked() {
-            acts.push(Act::Fill(!fill));
-        }
-        for shape in Shape::ALL {
-            let sub = (shape == Shape::AsBroadcast).then_some("As the stream says");
-            if menu_row(ui, Icon::Mini, shape.label(), sub, self.session.shape == shape).clicked() {
-                acts.push(Act::Shape(shape));
-            }
-        }
-        let hidden = self.source().map_or(0, |s| s.hidden.len());
-        if hidden > 0 {
-            ui.add_space(6.0);
-            heading(ui, "Groups");
-            let sub =
-                if hidden == 1 { "1 group hidden in this source".to_string() } else { format!("{hidden} groups hidden in this source") };
-            if menu_row(ui, Icon::List, "Show hidden groups", Some(&sub), self.browse.show_hidden).clicked() {
-                acts.push(Act::ShowHidden(!self.browse.show_hidden));
-            }
-            let locked = self.prefs.pin.is_some();
-            let (title, sub) = if locked {
-                ("Remove the PIN", "Hidden groups show without one")
-            } else {
-                ("Lock with a PIN", "Asked before hidden groups show")
-            };
-            if menu_row(ui, Icon::Key, title, Some(sub), false).clicked() {
-                acts.push(Act::Pin(!locked));
-            }
-        }
-        ui.add_space(6.0);
-        heading(ui, "Keys");
-        // ⌘ on macOS, Ctrl elsewhere.
-        let cmd = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl " };
-        for (k, what) in [
-            ("↑ ↓".to_string(), "previous / next channel"),
-            ("← →".to_string(), "back / ahead 10 seconds"),
-            ("Space".to_string(), "pause"),
-            ("F".to_string(), "full screen"),
-            ("P".to_string(), "mini player"),
-            ("Z".to_string(), "fill the window"),
-            ("A".to_string(), "picture shape"),
-            ("M".to_string(), "mute"),
-            ("L".to_string(), "channel list"),
-            ("G".to_string(), "guide"),
-            ("[ ]".to_string(), "picture earlier / later"),
-            (format!("{cmd}F"), "search (the guide too)"),
-            (format!("{cmd},"), "settings"),
-            (format!("{cmd}R"), "refresh the channels"),
-            (format!("{cmd}1–5"), "tabs"),
-        ] {
-            ui.horizontal(|ui| {
-                ui.add_sized([56.0, 18.0], egui::Label::new(egui::RichText::new(&k).font(typography::meta()).color(colors().text)));
-                ui.label(egui::RichText::new(what).font(typography::secondary()).color(colors().dim));
-            });
-        }
-        ui.add_space(6.0);
-        heading(ui, "Updates");
-        let status = self.updates.status();
-        if menu_row(ui, Icon::Update, "Check automatically", Some(&status), self.updates.auto).clicked() {
-            acts.push(Act::AutoUpdate(!self.updates.auto));
-        }
-        if menu_row(ui, Icon::FromStart, "Check now", None, false).clicked() {
-            acts.push(Act::CheckForUpdates);
         }
     }
 }

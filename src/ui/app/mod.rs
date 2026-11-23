@@ -54,6 +54,8 @@ pub struct Panels {
     pub guide_jump: bool,
     /// The guide shows the favourites rather than the group picked.
     pub guide_favorites: bool,
+    /// The settings page, open at a section.
+    pub settings: Option<crate::ui::views::SettingsPage>,
     pub popup: Option<Popup>,
     /// Where the buttons that open menus are, for placing the menus.
     pub anchors: std::cell::RefCell<std::collections::HashMap<Popup, egui::Rect>>,
@@ -71,6 +73,7 @@ impl Default for Panels {
             guide_open: false,
             guide_jump: false,
             guide_favorites: false,
+            settings: None,
             popup: None,
             anchors: Default::default(),
             focus_search: false,
@@ -121,6 +124,8 @@ pub struct App {
     pub reminders: Reminders,
     /// Reminders whose time came, shown until answered or the programme ends.
     pub reminding: Vec<Reminder>,
+    /// The section of the settings shown last.
+    settings_page: crate::ui::views::SettingsPage,
 }
 
 impl App {
@@ -143,6 +148,7 @@ impl App {
             sleep: sleep::Sleep::default(),
             reminders: Reminders::load(time::now()),
             reminding: Vec::new(),
+            settings_page: Default::default(),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -304,7 +310,9 @@ impl eframe::App for App {
         } else if self.controls_visible(&ctx) {
             self.panels.controls_shown = true;
             self.top_bar(&ctx, screen, &mut acts);
-            if self.panels.guide_open {
+            if let Some(page) = self.panels.settings {
+                self.settings_view(&ctx, screen, page, &mut acts);
+            } else if self.panels.guide_open {
                 self.guide_view(&ctx, screen, &mut acts);
             } else {
                 if self.panels.rail_open {

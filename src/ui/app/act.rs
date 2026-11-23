@@ -16,7 +16,6 @@ pub enum Popup {
     Sources,
     AudioTracks,
     Sleep,
-    Settings,
     /// The reminders set, from the guide.
     Reminders,
     /// Which channels the guide shows.
@@ -79,6 +78,10 @@ pub enum Act {
     /// Set the sleep timer, or turn it off.
     Sleep(Option<Timer>),
     Popup(Option<Popup>),
+    /// Open the settings at a section, or close them (None).
+    Settings(Option<crate::ui::views::SettingsPage>),
+    /// Open the settings where they were left, or close them.
+    ToggleSettings,
     Output(Output),
     Volume(f32),
     /// Change the picture delay of the output in use by this many milliseconds;
@@ -167,6 +170,11 @@ impl App {
             Act::RemoveSource(i) => self.remove_source(ctx, i),
             Act::SourceSaved(checked) => self.save_source(ctx, *checked),
             Act::Popup(p) => self.toggle_popup(p),
+            Act::Settings(page) => self.show_settings(page),
+            Act::ToggleSettings => {
+                let page = if self.panels.settings.is_some() { None } else { Some(self.settings_page) };
+                self.show_settings(page);
+            }
             Act::ToggleRail => self.panels.rail_open = !self.panels.rail_open,
             Act::ToggleGroups => self.panels.groups_open = !self.panels.groups_open,
             Act::ToggleGuide => self.toggle_guide(),
@@ -223,8 +231,19 @@ impl App {
         self.panels.popup = None;
     }
 
+    /// Open the settings at `page`, or close them.
+    fn show_settings(&mut self, page: Option<crate::ui::views::SettingsPage>) {
+        self.panels.popup = None;
+        self.panels.settings = page;
+        if let Some(page) = page {
+            self.settings_page = page;
+            self.panels.guide_open = false;
+        }
+    }
+
     fn toggle_guide(&mut self) {
         let panels = &mut self.panels;
+        panels.settings = None;
         panels.guide_open = !panels.guide_open;
         panels.guide_jump = panels.guide_open;
         panels.popup = None;

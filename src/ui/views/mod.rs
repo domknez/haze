@@ -6,8 +6,10 @@ mod guide;
 pub mod pin;
 mod popups;
 mod rail;
+mod settings;
 mod stage;
 mod top_bar;
 
 pub use bottom::{duration_text, hhmm};
 pub use guide::GuideSearch;
+pub use settings::Page as SettingsPage;

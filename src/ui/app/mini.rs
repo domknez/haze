@@ -52,6 +52,7 @@ impl App {
             Mini::Off if self.session.player.is_some() => {
                 self.panels.popup = None;
                 self.panels.guide_open = false;
+                self.panels.settings = None;
                 if ctx.input(|i| i.viewport().fullscreen == Some(true)) {
                     ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
                     self.mini = Mini::Waiting(Instant::now());
