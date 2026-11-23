@@ -17,6 +17,8 @@ pub enum Popup {
     AudioTracks,
     Sleep,
     Settings,
+    /// The reminders set, from the guide.
+    Reminders,
     /// Which channels the guide shows.
     GuideChannels,
 }
@@ -42,6 +44,10 @@ pub enum Act {
     /// watched last.
     CarryOn(usize),
     PlayCatchup(String, Programme),
+    /// Be reminded of a programme still to come on a channel, or not any more.
+    Remind(String, Programme),
+    /// Watch the programme of the reminder shown (true), or let it go.
+    AnswerReminder(bool),
     GoLive,
     TogglePause,
     /// Pause (true) or play on (false); nothing when it already is.
@@ -121,6 +127,8 @@ impl App {
             Act::CloseTile(key) => self.close_tile(&key),
             Act::Solo(key) => self.solo(key),
             Act::PlayCatchup(key, programme) => self.play(ctx, Playing::Catchup { key, programme }),
+            Act::Remind(key, programme) => self.toggle_reminder(&key, &programme),
+            Act::AnswerReminder(watch) => self.answer_reminder(ctx, watch),
             Act::GoLive => self.go_live(ctx),
             Act::TogglePause => self.set_paused(!self.session.paused()),
             Act::Pause(paused) => self.set_paused(paused),

@@ -55,6 +55,8 @@ pub enum Icon {
     Key,
     /// A document: a playlist file.
     File,
+    /// A bell: a reminder.
+    Bell,
 }
 
 fn p(r: Rect, x: f32, y: f32) -> Pos2 {
@@ -252,6 +254,15 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
                 line(p(r, cuts[0], y), p(r, cuts[1] - 0.07, y));
                 line(p(r, cuts[1] + 0.07, y), p(r, cuts[2], y));
             }
+        }
+        Icon::Bell => {
+            let s = Stroke::new(stroke.width * 0.9, color);
+            let mut pts = vec![p(r, 0.14, 0.74), p(r, 0.24, 0.62), p(r, 0.26, 0.44)];
+            pts.extend(arc(p(r, 0.5, 0.44), w * 0.24, PI, 2.0 * PI));
+            pts.extend([p(r, 0.76, 0.62), p(r, 0.86, 0.74)]);
+            painter.add(Shape::closed_line(pts, s));
+            painter.circle_filled(p(r, 0.5, 0.86), w * 0.08, color);
+            painter.circle_filled(p(r, 0.5, 0.15), w * 0.05, color);
         }
         Icon::Trash => {
             let s = Stroke::new(stroke.width * 0.9, color);

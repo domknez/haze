@@ -58,7 +58,9 @@ Secret Service), never in the settings files.
   light), the programme on now with its progress and a strip of what's next, and the
   **full guide** (G): the channels of any group, or the favourites, against the time,
   half a day back and a day ahead, to play a channel or a programme from the archive;
-  **search the guide** (⌘F while it's open) for a programme by name on every channel
+  **search the guide** (⌘F while it's open) for a programme by name on every channel;
+  click a programme still to come for a **reminder**: a minute before it starts, a
+  notice offers to watch it (the bell in the guide lists those set)
 - **Catch-up:** watch a programme that already aired from the strip, or the one on now
   *from the start* — Xtream archives, and M3U `catchup` (`default`, `append`, `shift`,
   `flussonic`, with `catchup-source` templates)
@@ -175,7 +177,7 @@ listed in `.github/workflows/release.yml` makes it sign with a Developer ID and 
 ```
 src/
   iptv/      playlists (m3u), provider logins (xtream), guides (xmltv), HTTP, time
-  library/   sources, catch-up URLs, favourites, recents and progress
+  library/   sources, catch-up URLs, favourites, recents, progress and reminders
   media/     playback: demux → audio (drives the clock) and video (waits for it)
   output/    local sound card and AirPlay 1/2
   ui/        egui: the stage, glass panels, menus, the add-source dialog, GPU video
@@ -187,7 +189,7 @@ src/
   and shows it when the clock reaches it.
 - **Settings** live in `~/Library/Application Support/haze/` (macOS),
   `%APPDATA%\haze\` (Windows) or `~/.config/haze/` (Linux): `settings.conf`,
-  `sources.json`, `marks.json`, `progress.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
+  `sources.json`, `marks.json`, `progress.json`, `reminders.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
 - `haze probe <url> [seconds] [from]` plays a stream (a recording from `from` seconds in) without the window and reports what it is
   and how it plays, with its subtitles if it has any (`HAZE_LOG=trace` adds ffmpeg's
   own messages);

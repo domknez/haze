@@ -1,15 +1,18 @@
 //! The viewer's sources (saved in `sources.json`, passwords in the keychain) and
 //! loading what each offers. Next to them: [`catchup`] URLs for programmes that
-//! already aired, [`Marks`] (favourite and recently watched channels) and
-//! [`Progress`] (how far movies and episodes were watched).
+//! already aired, [`Marks`] (favourite and recently watched channels),
+//! [`Progress`] (how far movies and episodes were watched) and [`Reminders`]
+//! (programmes to be reminded of).
 
 mod catchup;
 mod marks;
 mod progress;
+mod reminders;
 
 pub use catchup::catchup_url;
 pub use marks::Marks;
 pub use progress::{Left, Progress};
+pub use reminders::{LEAD as REMIND_LEAD, Reminder, Reminders};
 
 use crate::credentials;
 use crate::iptv::model::{Catalog, Channel, Guide, Shelf};

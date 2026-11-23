@@ -1,7 +1,7 @@
 //! The guide: the channels of the group picked against the time, with what's on
 //! each before, now and after. A click on a channel or on what's on now plays the
-//! channel; one on a programme from its archive plays that. A search finds
-//! programmes by name on every channel.
+//! channel; one on a programme from its archive plays that, and one still to come
+//! sets a reminder. A search finds programmes by name on every channel.
 
 use crate::iptv::model::{Catalog, Channel, Guide, Programme};
 use crate::iptv::time;
@@ -86,6 +86,18 @@ impl App {
                 if self.guide_search.text.trim().is_empty() && widgets::pill(ui, None, "Now", false).clicked() {
                     self.panels.guide_jump = true;
                 }
+                let set = self.reminders.of(&self.source_id()).count();
+                let open = self.panels.popup == Some(Popup::Reminders);
+                let tip = match set {
+                    0 => "Reminders".to_string(),
+                    1 => "1 reminder".to_string(),
+                    n => format!("{n} reminders"),
+                };
+                let bell = widgets::icon_button(ui, Icon::Bell, 28.0, if set > 0 || open { p.accent } else { p.faint }, &tip);
+                self.anchor(Popup::Reminders, bell.rect);
+                if bell.clicked() {
+                    acts.push(Act::Popup(Some(Popup::Reminders)));
+                }
                 ui.add_space(6.0);
                 let field = widgets::filter_field(ui, &mut self.guide_search.text, "Search the guide", 260.0);
                 if std::mem::take(&mut self.panels.focus_search) {
@@ -115,6 +127,8 @@ impl App {
         let now = time::now();
         let t0 = (now - BEFORE) / 1800 * 1800;
         let playing = self.playing_channel().map(|c| c.key.clone());
+        let (source, reminders) = (self.source_id(), &self.reminders);
+        let reminded = |key: &str, start: i64| reminders.is_set(&source, key, start);
 
         let mut area = egui::ScrollArea::both().id_salt("guide-grid").auto_shrink([false, false]);
         if std::mem::take(&mut self.panels.guide_jump) {
@@ -124,7 +138,7 @@ impl App {
         area.show_viewport(ui, |ui, view| {
             ui.allocate_exact_size(vec2(x_of(t0, now + AFTER), RULER + channels.len() as f32 * ROW), Sense::hover());
             let grid = Grid { origin: ui.min_rect().min, view, t0, now, rows: Grid::rows_in(view, channels.len()) };
-            grid.programmes(ui, guide, &channels, acts);
+            grid.programmes(ui, guide, &channels, &reminded, acts);
             grid.now_line(ui.painter());
             ui.painter().rect_filled(grid.names_column(), CornerRadius::ZERO, p.glass_strong);
             for (row, channel) in channels.iter().enumerate().take(grid.rows.end).skip(grid.rows.start) {
@@ -156,6 +170,7 @@ impl App {
             return;
         }
         let playing = self.playing_channel().map(|c| c.key.clone());
+        let source = self.source_id();
         egui::ScrollArea::vertical().id_salt("guide-results").auto_shrink([false, false]).show(ui, |ui| {
             let mut section = None;
             for (n, (i, prog)) in hits.iter().enumerate() {
@@ -184,7 +199,8 @@ impl App {
                     }
                     // The programme, then its day and hours.
                     let cell = Rect::from_min_max(pos2(name.right() + 8.0, r.top() + 3.0), pos2(r.right() - WHEN, r.bottom() - 3.0));
-                    programme_cell(ui, cell, channel, prog, now, acts);
+                    let reminded = self.reminders.is_set(&source, &channel.key, prog.start);
+                    programme_cell(ui, cell, channel, prog, now, reminded, acts);
                     let when = format!("{} · {}–{}", day(prog.start, now), super::bottom::hhmm(prog.start), super::bottom::hhmm(prog.stop));
                     let color = if prog.is_on(now) { p.accent } else { p.dim };
                     let text = widgets::ellipsize(ui, &when, typography::meta(), color, WHEN - 16.0);
@@ -249,7 +265,14 @@ impl Grid {
     }
 
     /// What's on, row by row.
-    fn programmes(&self, ui: &mut egui::Ui, guide: &Guide, channels: &[&Channel], acts: &mut Vec<Act>) {
+    fn programmes(
+        &self,
+        ui: &mut egui::Ui,
+        guide: &Guide,
+        channels: &[&Channel],
+        reminded: &dyn Fn(&str, i64) -> bool,
+        acts: &mut Vec<Act>,
+    ) {
         let (view, x) = (self.view, |t: i64| x_of(self.t0, t));
         for (row, channel) in channels.iter().enumerate().take(self.rows.end).skip(self.rows.start) {
             let y = RULER + row as f32 * ROW;
@@ -263,7 +286,7 @@ impl Grid {
                 let x0 = x(prog.start).max(view.left() + NAMES);
                 let r = Rect::from_min_max(self.at(x0 + 2.0, y + 3.0), self.at(x(prog.stop) - 2.0, y + ROW - 3.0));
                 if r.width() >= 2.0 {
-                    programme_cell(ui, r, channel, prog, self.now, acts);
+                    programme_cell(ui, r, channel, prog, self.now, reminded(&channel.key, prog.start), acts);
                 }
             }
         }
@@ -316,23 +339,29 @@ fn channel_name(ui: &mut egui::Ui, logos: &mut crate::ui::logos::Logos, r: Rect,
 }
 
 /// A programme in the grid: on now (plays the channel), from the archive (plays it),
-/// or one that's over or still to come.
-fn programme_cell(ui: &mut egui::Ui, r: Rect, channel: &Channel, prog: &Programme, now: i64, acts: &mut Vec<Act>) {
+/// still to come (a reminder, `reminded` when it has one), or one that's over.
+fn programme_cell(ui: &mut egui::Ui, r: Rect, channel: &Channel, prog: &Programme, now: i64, reminded: bool, acts: &mut Vec<Act>) {
     let p = colors();
     let on = prog.is_on(now);
     let archived = prog.stop <= now && crate::library::catchup_url(channel, prog, None, 0).is_some();
+    let ahead = prog.start > now;
     let resp = ui.interact(
         r,
         ui.scope_id().with(("guide-programme", &channel.key, prog.start)),
-        if on || archived { Sense::click() } else { Sense::hover() },
+        if on || archived || ahead { Sense::click() } else { Sense::hover() },
     );
-    let fill = if (on || archived) && resp.hovered() { p.hl_strong } else { p.hl };
+    let fill = if (on || archived || ahead) && resp.hovered() { p.hl_strong } else { p.hl };
     ui.painter().rect_filled(r, CornerRadius::same(8), fill);
     if on {
         ui.painter().rect_stroke(r, CornerRadius::same(8), Stroke::new(1.5, p.accent), egui::StrokeKind::Inside);
     }
     let faded = prog.stop <= now && !archived;
-    let w = r.width() - 16.0;
+    // A bell in the corner of a programme with a reminder.
+    let bell = reminded && r.width() > 40.0;
+    if bell {
+        icons::paint(ui.painter(), Rect::from_min_size(pos2(r.right() - 20.0, r.top() + 7.0), vec2(13.0, 13.0)), Icon::Bell, p.accent);
+    }
+    let w = r.width() - if bell { 34.0 } else { 16.0 };
     if w > 12.0 {
         let title = widgets::ellipsize(ui, &prog.title, typography::small_strong(), if faded { p.faint } else { p.text }, w);
         ui.painter().galley(pos2(r.left() + 8.0, r.top() + 7.0), title, p.text);
@@ -352,6 +381,10 @@ fn programme_cell(ui: &mut egui::Ui, r: Rect, channel: &Channel, prog: &Programm
             when.push_str(" · click to watch from the archive");
         } else if on {
             when.push_str(" · on now");
+        } else if reminded {
+            when.push_str(" · you'll be reminded, click to cancel");
+        } else if ahead {
+            when.push_str(" · click to be reminded");
         }
         ui.label(egui::RichText::new(when).font(typography::meta()).color(p.dim));
         if !prog.desc.is_empty() {
@@ -363,12 +396,14 @@ fn programme_cell(ui: &mut egui::Ui, r: Rect, channel: &Channel, prog: &Programm
             acts.push(Act::PlayChannel(channel.key.clone()));
         } else if archived {
             acts.push(Act::PlayCatchup(channel.key.clone(), prog.clone()));
+        } else if ahead {
+            acts.push(Act::Remind(channel.key.clone(), prog.clone()));
         }
     }
 }
 
 /// `Today`, `Yesterday`, `Tomorrow` or the date of `t`, as of `now`.
-fn day(t: i64, now: i64) -> String {
+pub(super) fn day(t: i64, now: i64) -> String {
     let local = |t: i64| t + super::bottom::local_offset(t);
     let (d, today) = (local(t).div_euclid(86_400), local(now).div_euclid(86_400));
     match d - today {

@@ -1,5 +1,5 @@
 //! The picture filling the window, what shows instead of it, the welcome screen
-//! and short messages.
+//! and short messages: toasts, and reminders whose time came.
 
 use crate::media::Status;
 use crate::ui::app::{Act, App};
@@ -296,6 +296,60 @@ impl App {
             .show(ctx, |ui| {
                 widgets::popover().inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
                     ui.label(egui::RichText::new(text.as_str()).font(typography::control()).color(p.text));
+                });
+            });
+    }
+
+    /// The reminder whose time came: its programme, and to watch it or not.
+    pub fn reminder_view(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
+        let Some(r) = self.reminding.first() else { return };
+        let p = colors();
+        let now = crate::iptv::time::now();
+        let at = crate::ui::views::hhmm(r.start);
+        let when = if r.start > now { format!("Starts at {at}") } else { format!("Started at {at}") };
+        let detail = match self.reminder_channel(r) {
+            Some(channel) => format!("{channel} · {when}"),
+            None => {
+                let source = self.sources.iter().find(|s| s.id == r.source).map_or("another source", |s| s.name.as_str());
+                format!("On {source} · {when}")
+            }
+        };
+        let more = self.reminding.len() - 1;
+        let top = if self.mini_on() { screen.top() + 8.0 } else { screen.top() + metrics::GAP * 2.0 + metrics::TOP_BAR };
+        let width = (screen.width() - 16.0).min(440.0);
+        egui::Area::new(egui::Id::unique("reminder"))
+            .order(egui::Order::Tooltip)
+            .pivot(Align2::CENTER_TOP)
+            .fixed_pos(egui::pos2(screen.center().x, top))
+            .show(ctx, |ui| {
+                widgets::popover().inner_margin(egui::Margin::symmetric(14, 12)).show(ui, |ui| {
+                    ui.set_width(width - 28.0);
+                    ui.horizontal(|ui| {
+                        let (bell, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
+                        ui.painter().rect_filled(bell, egui::CornerRadius::same(10), p.accent);
+                        crate::ui::icons::paint(ui.painter(), bell.shrink(8.0), Icon::Bell, p.on_accent);
+                        ui.add_space(4.0);
+                        let buttons = 150.0;
+                        let text_w = (ui.available_width() - buttons).max(60.0);
+                        ui.vertical(|ui| {
+                            ui.set_width(text_w);
+                            let title = widgets::ellipsize(ui, &r.title, typography::small_strong(), p.text, text_w);
+                            ui.label(title);
+                            let mut detail = detail.clone();
+                            if more > 0 {
+                                detail.push_str(&format!(" · {more} more"));
+                            }
+                            ui.label(widgets::ellipsize(ui, &detail, typography::meta(), p.dim, text_w));
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if widgets::icon_button(ui, Icon::Close, 28.0, p.faint, "Not now").clicked() {
+                                acts.push(Act::AnswerReminder(false));
+                            }
+                            if widgets::pill(ui, Some(Icon::Play), "Watch", true).clicked() {
+                                acts.push(Act::AnswerReminder(true));
+                            }
+                        });
+                    });
                 });
             });
     }

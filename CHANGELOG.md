@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reminders from the guide: click a programme still to come (or one found by a
+  search), and a minute before it starts a notice offers to watch it, even on another
+  source; the bell in the guide lists the reminders set
+
 ## 0.1.8 (2026-11-19)
 
 - Multiview: up to four live channels at once, from a channel's right-click menu;

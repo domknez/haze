@@ -1,5 +1,5 @@
 //! Menus that open from a button: where the sound plays, the sources, the channel
-//! groups, the audio track, and settings.
+//! groups, the audio track, the sleep timer, reminders, and settings.
 
 use crate::output::Output;
 use crate::settings::Appearance;
@@ -48,6 +48,7 @@ impl App {
                             Popup::Sources => self.sources_menu(ui, acts),
                             Popup::AudioTracks => self.tracks_menu(ui, acts),
                             Popup::Sleep => self.sleep_menu(ui, acts),
+                            Popup::Reminders => self.reminders_menu(ui, acts),
                             Popup::Settings => self.settings_menu(ui, acts),
                             Popup::GuideChannels => {}
                         });
@@ -249,6 +250,48 @@ impl App {
             if menu_row(ui, Icon::Moon, "End of this programme", Some(&sub), self.sleep.timer == Some(Timer::EndOfProgramme)).clicked() {
                 acts.push(Act::Sleep(Some(Timer::EndOfProgramme)));
             }
+        }
+    }
+
+    fn reminders_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        let p = colors();
+        heading(ui, "Reminders");
+        let source = self.source_id();
+        let now = crate::iptv::time::now();
+        let mut any = false;
+        for (n, r) in self.reminders.of(&source).enumerate() {
+            any = true;
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+            if resp.hovered() {
+                ui.painter().rect_filled(row, CornerRadius::same(10), p.hl);
+            }
+            let ic = Rect::from_center_size(pos2(row.left() + 20.0, row.center().y), vec2(26.0, 26.0));
+            ui.painter().rect_filled(ic, CornerRadius::same(8), p.hl);
+            icons::paint(ui.painter(), ic.shrink(6.0), Icon::Bell, p.dim);
+            let x = ic.right() + 10.0;
+            let w = row.right() - x - 36.0;
+            let title = widgets::ellipsize(ui, &r.title, typography::small_strong(), p.text, w);
+            ui.painter().galley(pos2(x, row.top() + 6.0), title, p.text);
+            let channel = self.channel(&r.channel).map_or("", |c| c.name.as_str());
+            let when = format!("{} · {} {}", channel, super::guide::day(r.start, now), crate::ui::views::hhmm(r.start));
+            let sub = widgets::ellipsize(ui, when.trim_start_matches(" · "), typography::secondary(), p.dim, w);
+            ui.painter().galley(pos2(x, row.top() + 24.0), sub, p.dim);
+            let remove = Rect::from_center_size(pos2(row.right() - 16.0, row.center().y), vec2(24.0, 24.0));
+            let remove_resp = ui.interact(remove, ui.scope_id().with(("remove-reminder", n)), Sense::click()).on_hover_text("Remove");
+            if resp.hovered() || remove_resp.hovered() {
+                icons::paint(ui.painter(), remove.shrink(5.0), Icon::Trash, if remove_resp.hovered() { p.danger } else { p.dim });
+            }
+            if remove_resp.clicked() {
+                let programme = crate::iptv::model::Programme { start: r.start, stop: r.stop, title: r.title.clone(), desc: String::new() };
+                acts.push(Act::Remind(r.channel.clone(), programme));
+            }
+        }
+        if !any {
+            ui.label(
+                egui::RichText::new("Click a programme still to come in the guide, and you'll be reminded a minute before it starts.")
+                    .font(typography::secondary())
+                    .color(p.faint),
+            );
         }
     }
 

@@ -2,7 +2,8 @@
 //! [`act`]; playing in [`playback`]; sources, groups and favourites in [`sources`];
 //! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`];
 //! keeping the channels and the guide fresh in [`refresh`]; the sleep timer in
-//! [`sleep`]; several channels at once in [`multi`].
+//! [`sleep`]; several channels at once in [`multi`]; reminders from the guide in
+//! [`remind`].
 
 mod act;
 mod input;
@@ -10,6 +11,7 @@ mod mini;
 mod multi;
 mod playback;
 mod refresh;
+mod remind;
 mod sleep;
 mod sources;
 
@@ -30,7 +32,7 @@ use super::views::add_source::SourceForm;
 use super::views::pin::{Outcome as PinOutcome, PinDialog};
 use crate::iptv::model::{Catalog, Channel, Guide, Programme};
 use crate::iptv::time;
-use crate::library::{self, Marks, Progress, Source};
+use crate::library::{self, Marks, Progress, Reminder, Reminders, Source};
 use crate::media::Status;
 use crate::output::Output;
 use crate::output::airplay::Discovery;
@@ -115,6 +117,10 @@ pub struct App {
     pub guide_search: crate::ui::views::GuideSearch,
     pub multi: multi::Multi,
     pub sleep: sleep::Sleep,
+    /// Programmes to be reminded of.
+    pub reminders: Reminders,
+    /// Reminders whose time came, shown until answered or the programme ends.
+    pub reminding: Vec<Reminder>,
 }
 
 impl App {
@@ -135,6 +141,8 @@ impl App {
             guide_search: Default::default(),
             multi: multi::Multi::default(),
             sleep: sleep::Sleep::default(),
+            reminders: Reminders::load(time::now()),
+            reminding: Vec::new(),
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -216,6 +224,7 @@ impl App {
         self.poll_refresh(ctx);
         self.refresh_when_due(ctx);
         self.sleep_when_due(ctx);
+        self.remind_when_due(ctx);
         for act in self.remotes.presses(self.prefs.volume) {
             self.apply(ctx, act);
         }
@@ -308,6 +317,7 @@ impl eframe::App for App {
             self.panels.controls_shown = false;
             ctx.set_cursor_icon(egui::CursorIcon::None);
         }
+        self.reminder_view(&ctx, screen, &mut acts);
         self.toast_view(&ctx, screen);
         self.dialogs(&ctx, screen);
         for act in acts {

@@ -64,6 +64,7 @@ impl App {
             crate::credentials::save(&source.id, &password);
             // Channels are known by their stream id now, not their link.
             self.marks.rekey(&source.id, crate::iptv::xtream::stream_id);
+            self.reminders.rekey(&source.id, crate::iptv::xtream::stream_id);
             if self.source().is_some_and(|s| s.id == source.id)
                 && let Some(key) = self.resume.as_deref().and_then(crate::iptv::xtream::stream_id)
             {
@@ -135,6 +136,7 @@ impl App {
         crate::credentials::clear(&removed.id);
         self.marks.forget_source(&removed.id);
         self.progress.forget_source(&removed.id);
+        self.reminders.forget_source(&removed.id);
         library::save_sources(&self.sources);
         if self.active == Some(i) {
             self.stop();
