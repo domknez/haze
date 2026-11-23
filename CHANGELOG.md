@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.9 (2026-11-23)
+
 - Reminders from the guide: click a programme still to come (or one found by a
   search), and a minute before it starts a notice offers to watch it, even on another
   source; the bell in the guide lists the reminders set
