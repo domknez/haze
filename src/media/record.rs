@@ -66,6 +66,11 @@ impl Recorder {
         packet.set_position(-1);
         packet.write_interleaved(&mut self.output)
     }
+
+    /// Whether nothing has gone into the file yet (it waits for a key frame).
+    pub fn is_empty(&self) -> bool {
+        self.timeline.start.is_none()
+    }
 }
 
 impl Drop for Recorder {

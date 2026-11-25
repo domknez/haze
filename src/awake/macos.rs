@@ -16,6 +16,11 @@ pub fn screen() -> Hold {
     activity(NSActivityOptions::IdleDisplaySleepDisabled, "Showing video")
 }
 
+/// User-initiated: no idle sleep, no App Nap slowing the reading down.
+pub fn recording() -> Hold {
+    activity(NSActivityOptions::UserInitiated, "Recording")
+}
+
 fn activity(options: NSActivityOptions, reason: &str) -> Hold {
     Hold(NSProcessInfo::processInfo().beginActivityWithOptions_reason(options, &NSString::from_str(reason)))
 }

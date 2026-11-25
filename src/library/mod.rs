@@ -1,21 +1,21 @@
 //! The viewer's sources (saved in `sources.json`, passwords in the keychain) and
 //! loading what each offers. Next to them: [`catchup`] URLs for programmes that
 //! already aired, [`Marks`] (favourite and recently watched channels),
-//! [`Progress`] (how far movies and episodes were watched) and [`Reminders`]
-//! (programmes to be reminded of). [`Free`] names lists of free-to-air channels
+//! [`Progress`] (how far movies and episodes were watched) and [`Plans`]
+//! (programmes to be reminded of, or recorded). [`Free`] names lists of free-to-air channels
 //! to start with.
 
 mod catchup;
 mod free;
 mod marks;
+mod plans;
 mod progress;
-mod reminders;
 
 pub use catchup::catchup_url;
 pub use free::Free;
 pub use marks::Marks;
+pub use plans::{LEAD, Plan, Plans};
 pub use progress::{Left, Progress};
-pub use reminders::{LEAD as REMIND_LEAD, Reminder, Reminders};
 
 use crate::credentials;
 use crate::iptv::model::{Catalog, Channel, Guide, Shelf};

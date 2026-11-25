@@ -12,7 +12,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 
 impl App {
-    fn request_for(&self, playing: &Playing) -> Option<Request> {
+    pub(super) fn request_for(&self, playing: &Playing) -> Option<Request> {
         let catalog = self.catalog.ready()?;
         match playing {
             Playing::Live { key } => {
@@ -73,6 +73,9 @@ impl App {
     }
 
     pub fn play(&mut self, ctx: &egui::Context, playing: Playing) {
+        if self.streams_to_watch() == Some(0) {
+            return self.show_toast("Every stream your provider allows is recording");
+        }
         // In multiview a channel takes the place of the one in focus; anything else
         // is watched alone.
         if self.multi.on() {

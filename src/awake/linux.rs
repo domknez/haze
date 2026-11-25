@@ -1,6 +1,7 @@
 //! Linux and the BSDs: asking the desktop over D-Bus not to blank the screen. The
 //! freedesktop screensaver interface covers KDE, Xfce and most others; GNOME's
-//! session manager is asked when that isn't there.
+//! session manager is asked when that isn't there. While recording, systemd-logind
+//! is asked not to let the computer sleep.
 
 use dbus::blocking::Connection;
 use std::time::Duration;
@@ -12,6 +13,8 @@ const TIMEOUT: Duration = Duration::from_millis(500);
 /// desktop when the connection closes, should haze go away first).
 pub struct Hold {
     _inhibition: Option<Inhibition>,
+    /// logind's lock against sleep, held as long as this file stays open.
+    _lock: Option<dbus::arg::OwnedFd>,
 }
 
 struct Inhibition {
@@ -49,7 +52,7 @@ impl Via {
 
 /// Nothing throttles a player in the background here: nothing to hold.
 pub fn begin() -> Hold {
-    Hold { _inhibition: None }
+    Hold { _inhibition: None, _lock: None }
 }
 
 pub fn screen() -> Hold {
@@ -57,18 +60,33 @@ pub fn screen() -> Hold {
         Ok(bus) => bus,
         Err(e) => {
             log_warn!("couldn't keep the display on: no session bus ({e})");
-            return Hold { _inhibition: None };
+            return Hold { _inhibition: None, _lock: None };
         }
     };
     let mut failed = Vec::new();
     for via in [Via::ScreenSaver, Via::Gnome] {
         match via.inhibit(&bus) {
-            Ok(cookie) => return Hold { _inhibition: Some(Inhibition { bus, via, cookie }) },
+            Ok(cookie) => return Hold { _inhibition: Some(Inhibition { bus, via, cookie }), _lock: None },
             Err(e) => failed.push(e.message().unwrap_or("no answer").to_string()),
         }
     }
     log_warn!("couldn't keep the display on: {}", failed.join("; "));
-    Hold { _inhibition: None }
+    Hold { _inhibition: None, _lock: None }
+}
+
+/// logind's lock against sleep (and the idle action, often sleep), in its
+/// "block" mode: lifted when the file it hands over is closed.
+pub fn recording() -> Hold {
+    let lock = Connection::new_system().and_then(|bus| {
+        let logind = bus.with_proxy("org.freedesktop.login1", "/org/freedesktop/login1", TIMEOUT);
+        let (fd,): (dbus::arg::OwnedFd,) =
+            logind.method_call("org.freedesktop.login1.Manager", "Inhibit", ("sleep:idle", "haze", "Recording", "block"))?;
+        Ok(fd)
+    });
+    if let Err(e) = &lock {
+        log_warn!("couldn't keep the computer awake: {}", e.message().unwrap_or("no answer"));
+    }
+    Hold { _inhibition: None, _lock: lock.ok() }
 }
 
 impl Drop for Inhibition {
