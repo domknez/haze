@@ -13,7 +13,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 /// Keys that act on their own (no modifier), unless a text field has the keyboard.
-const KEYS: [(Key, fn() -> Act); 14] = [
+const KEYS: [(Key, fn() -> Act); 15] = [
     (Key::Space, || Act::TogglePause),
     (Key::ArrowDown, || Act::Step(1)),
     (Key::PageDown, || Act::Step(1)),
@@ -26,6 +26,7 @@ const KEYS: [(Key, fn() -> Act); 14] = [
     (Key::M, || Act::ToggleMute),
     (Key::L, || Act::ToggleRail),
     (Key::G, || Act::ToggleGuide),
+    (Key::R, || Act::ToggleRecording),
     (Key::CloseBracket, || Act::PictureDelay(Some(50))),
     (Key::OpenBracket, || Act::PictureDelay(Some(-50))),
 ];
@@ -208,6 +209,11 @@ mod tests {
         keys.sort_by_key(|k| k.name());
         keys.dedup();
         assert_eq!(keys.len(), KEYS.len());
+    }
+
+    #[test]
+    fn r_records() {
+        assert!(KEYS.iter().any(|(key, act)| *key == Key::R && matches!(act(), Act::ToggleRecording)));
     }
 
     #[test]

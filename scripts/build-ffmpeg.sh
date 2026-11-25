@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build the small static ffmpeg that the macOS release links: demuxers, decoders,
-# network protocols, scaling and resampling, with the system's TLS, GPU decoding and
-# XML parser (for DASH streams) and no outside libraries (so LGPL).
+# network protocols, scaling and resampling, the Matroska muxer (for recordings),
+# with the system's TLS, GPU decoding and XML parser (for DASH streams) and no
+# outside libraries (so LGPL).
 #
 #   scripts/build-ffmpeg.sh <prefix> [arm64|x86_64]
 #
@@ -37,7 +38,7 @@ fi
   --disable-autodetect --disable-programs --disable-doc --disable-debug \
   --disable-avdevice --disable-avfilter --disable-encoders --disable-muxers \
   --disable-filters --disable-indevs --disable-outdevs \
-  --enable-zlib "$@"
+  --enable-muxer=matroska --enable-zlib "$@"
 make -j"$(sysctl -n hw.ncpu)" >/dev/null
 make install >/dev/null
 echo "ffmpeg $version ($arch) in $prefix"

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Recording: R, or the dot by the channel buttons, asks for a folder and records the
+  live channel into a Matroska file there, as it comes (nothing encoded again, no
+  second connection to the provider); R, the square or the *REC* badge stops it, as
+  does picking another channel, and a stream the provider drops carries on in a new
+  file once it's back
+
 ## 0.1.11 (2026-11-25)
 
 - Free channels to start with: *Try free channels* on the first screen, or *Free TV*
