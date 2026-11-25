@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.12 (2026-11-25)
+
 - Recording: R, or the dot by the channel buttons, asks for a folder and records the
   live channel into a Matroska file there, as it comes (nothing encoded again, no
   second connection to the provider); R, the square or the *REC* badge stops it, as
