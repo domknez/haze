@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.13 (2026-11-25)
+
 - Record from the guide: right-click a programme on now or still to come, *Record*,
   and it's recorded in the background, on a connection of its own, from a minute
   before it starts to two minutes after it ends, whatever plays meanwhile (watching

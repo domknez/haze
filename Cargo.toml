@@ -1,6 +1,6 @@
 [package]
 name = "haze"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 description = "Free and open source, ultra-lightweight desktop IPTV player (M3U and Xtream Codes), with AirPlay 2 output"
 license = "MIT"
