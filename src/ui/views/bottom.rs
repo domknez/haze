@@ -163,6 +163,15 @@ impl App {
                 {
                     acts.push(Act::PlayCatchup(key.clone(), prog));
                 }
+                if self.can_record() {
+                    let (icon, color, tip) = match self.record {
+                        Some(_) => (Icon::Stop, p.danger, "Stop recording (R)"),
+                        None => (Icon::Record, p.dim, "Record (R)"),
+                    };
+                    if widgets::icon_button(ui, icon, 34.0, color, tip).clicked() {
+                        acts.push(Act::ToggleRecording);
+                    }
+                }
             }
             _ => {}
         }
@@ -320,7 +329,7 @@ pub fn duration_text(secs: f64) -> String {
 }
 
 /// The computer's time zone at `t`, seconds east of UTC (for showing guide times).
-pub(super) fn local_offset(t: i64) -> i64 {
+pub fn local_offset(t: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: localtime_r only writes into the tm we pass.

@@ -86,6 +86,8 @@ pub struct Prefs {
     pub auto_update: bool,
     /// The picture fills the window, its edges cut, rather than showing whole.
     pub fill: bool,
+    /// The folder recorded into last.
+    pub record_folder: Option<String>,
     /// The settings file changes are saved to; None keeps them in memory.
     file: Option<PathBuf>,
 }
@@ -118,6 +120,7 @@ impl Prefs {
             pin: get("pin").map(str::to_string),
             auto_update: get("auto_update") != Some("false"),
             fill: get("picture") == Some("fill"),
+            record_folder: get("record_folder").map(str::to_string),
             file: None,
         }
     }
@@ -137,7 +140,7 @@ impl Prefs {
         }
     }
 
-    fn values(&self) -> [(&'static str, String); 12] {
+    fn values(&self) -> [(&'static str, String); 13] {
         let delays: serde_json::Map<String, serde_json::Value> =
             self.picture_delays.iter().map(|(k, v)| (k.clone(), (*v).into())).collect();
         [
@@ -153,6 +156,7 @@ impl Prefs {
             ("pin", self.pin.clone().unwrap_or_default()),
             ("auto_update", if self.auto_update { "true" } else { "false" }.into()),
             ("picture", if self.fill { "fill" } else { "whole" }.into()),
+            ("record_folder", self.record_folder.clone().unwrap_or_default()),
         ]
     }
 }
@@ -177,7 +181,7 @@ fn merge(text: &str, changes: &[(&str, String)]) -> String {
 mod tests {
     use super::*;
 
-    const SAVED: &str = "auto_update=false\nchannel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture=fill\npicture_delays={\"Kitchen\":250}\npin=ab12\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
+    const SAVED: &str = "auto_update=false\nchannel=42\ngroup=Sports\nmuted=true\noutput=Kitchen\npicture=fill\npicture_delays={\"Kitchen\":250}\npin=ab12\nrecord_folder=/home/me/Videos\nsource=a1b2\ntab=movies\ntheme=light\nvolume=0.250\n";
 
     #[test]
     fn reads_a_saved_file() {
@@ -185,6 +189,7 @@ mod tests {
         assert_eq!(p.theme, Appearance::Light);
         assert_eq!((p.source.as_deref(), p.channel.as_deref(), p.output.as_deref()), (Some("a1b2"), Some("42"), Some("Kitchen")));
         assert_eq!((p.volume, p.muted, p.auto_update, p.fill), (0.25, true, false, true));
+        assert_eq!(p.record_folder.as_deref(), Some("/home/me/Videos"));
     }
 
     #[test]

@@ -59,7 +59,11 @@ jobs:
         with:
           path: target/ffmpeg-*
           key: ffmpeg-macos-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      # ffmpeg's libraries end up inside the compiled ffmpeg-sys crate: a new ffmpeg
+      # needs it compiled again.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ffmpeg-${{ hashFiles('scripts/build-ffmpeg.sh') }}
       - name: Import Developer ID certificate
         if: env.MACOS_CERTIFICATE != ''
         run: |

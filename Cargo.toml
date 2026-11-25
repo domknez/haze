@@ -36,6 +36,8 @@ thiserror = "2"
 # Channel names arrive with letters and their accents apart (o + ¨), which egui draws
 # side by side; composed they're one glyph.
 unicode-normalization = "0.1"
+# The system's folder picker, for where to record (the desktop portal on Linux).
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }

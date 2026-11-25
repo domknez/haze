@@ -1,9 +1,11 @@
 //! Opening a stream and handing its packets to the audio and video threads.
 
-use super::{AudioCmd, DemuxCmd, Error, Shared, Status, StreamInfo, Track, audio, codec_label, subtitle, video};
+use super::record::Recorder;
+use super::{AudioCmd, DemuxCmd, Error, Recording, Shared, Status, StreamInfo, Track, audio, codec_label, subtitle, video};
 use crate::sync::Lock;
 use ffmpeg::media::Type;
 use ffmpeg_next as ffmpeg;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Once};
@@ -84,6 +86,8 @@ struct Demuxer<'a> {
     /// Output commands when there's no sound to take them.
     unheard: Option<Receiver<AudioCmd>>,
     subtitles: Option<SubtitleTrack>,
+    /// The file what plays is recorded into, if it is.
+    recorder: Option<Recorder>,
     /// Read to the end; waiting for a seek or the stop.
     ended: bool,
     /// The decoding threads, which end once their packets stop coming.
@@ -149,6 +153,7 @@ impl<'a> Demuxer<'a> {
             audio_tx: None,
             unheard: None,
             subtitles: None,
+            recorder: None,
             ended: false,
             threads: Vec::new(),
         }))
@@ -256,7 +261,30 @@ impl<'a> Demuxer<'a> {
             }
             DemuxCmd::AudioTrack(i) => self.switch_audio(i),
             DemuxCmd::Subtitles(track) => self.show_subtitles(track),
+            DemuxCmd::Record(path) => self.record(path),
         }
+    }
+
+    /// Record the picture and the sound into a new file at `path`, or stop recording.
+    fn record(&mut self, path: Option<PathBuf>) {
+        // The file before is finished first.
+        self.recorder = None;
+        let Some(path) = path else { return };
+        let streams: Vec<usize> = self.video_index.into_iter().chain(self.audio_index).collect();
+        match Recorder::start(&path, &self.input, &streams, self.video_index) {
+            Ok(recorder) => {
+                log_info!("recording started");
+                self.recorder = Some(recorder);
+            }
+            Err(e) => self.recording_failed(&format!("couldn't create the file: {e}")),
+        }
+    }
+
+    fn recording_failed(&mut self, why: &str) {
+        log_warn!("recording: {why}");
+        self.recorder = None;
+        *self.shared.recording.locked() = Recording::Failed(why.to_string());
+        (self.shared.repaint)();
     }
 
     /// Go to `t` seconds in; false when the stream can't.
@@ -274,7 +302,8 @@ impl<'a> Demuxer<'a> {
         match audio_decoder(&stream) {
             Ok(d) => {
                 let _ = tx.send(Packet::Decoder(d, stream.time_base()));
-                if let Some(old) = self.audio_index {
+                // A track being recorded is still read, for the recording.
+                if let Some(old) = self.audio_index.filter(|_| self.recorder.is_none()) {
                     set_discard(&mut self.input, old, true);
                 }
                 set_discard(&mut self.input, i, false);
@@ -347,6 +376,11 @@ impl<'a> Demuxer<'a> {
                 }
             }
             return true;
+        }
+        if let Some(recorder) = &mut self.recorder
+            && let Err(e) = recorder.write(&packet)
+        {
+            self.recording_failed(&format!("couldn't write to the file: {e}"));
         }
         let target = if Some(index) == self.video_index {
             &self.video_tx

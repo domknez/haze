@@ -10,6 +10,6 @@ mod settings;
 mod stage;
 mod top_bar;
 
-pub use bottom::{duration_text, hhmm};
+pub use bottom::{duration_text, hhmm, local_offset};
 pub use guide::GuideSearch;
 pub use settings::Page as SettingsPage;

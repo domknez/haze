@@ -87,12 +87,18 @@ Secret Service), never in the settings files.
 - **Multiview:** up to four live channels at once (right-click a channel, *Watch
   alongside*); a click on one gives it the sound, a double-click watches it alone.
   Each channel is a stream of its own: haze keeps to what the provider allows
+- **Recording** (R, or the dot by the channel buttons): pick a folder (the one used
+  last comes up first) and the live channel goes into a Matroska file there, named
+  after it and the time, as it comes, nothing encoded again and no second connection
+  to the provider. R, the square or the red *REC* badge in the corner stops it, and so
+  does picking another channel; when the provider drops the stream, the recording
+  carries on in a new file once it's back. haze has to be running to record
 - **Mini player** (P): the picture alone in a small window that stays above the
   others; drag it anywhere, P, Esc or a double-click bring the full window back
 - **Fill the window** (Z): the picture covers the window, its edges cut, instead of
   black bars; A sets the shape (16:9, 4:3) of a stream that has it wrong
 - Full screen (F or double-click), Space to pause, M to mute, L for the channel list,
-  G for the guide,
+  G for the guide, R to record,
   ⌘F to search, ⌘1–5 for the tabs, ⌘, for settings, ⌘R to refresh (Ctrl on Windows and Linux)
 
 **Listening anywhere**
@@ -179,7 +185,8 @@ listed in `.github/workflows/release.yml` makes it sign with a Developer ID and 
 src/
   iptv/      playlists (m3u), provider logins (xtream), guides (xmltv), HTTP, time
   library/   sources, catch-up URLs, favourites, recents, progress and reminders
-  media/     playback: demux → audio (drives the clock) and video (waits for it)
+  media/     playback: demux → audio (drives the clock) and video (waits for it),
+             and recording what's read
   output/    local sound card and AirPlay 1/2
   ui/        egui: the stage, glass panels, menus, the add-source dialog, GPU video
 ```

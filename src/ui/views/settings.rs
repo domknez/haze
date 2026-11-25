@@ -291,6 +291,7 @@ fn keys_page(ui: &mut egui::Ui) {
                 ("Space".into(), "Pause"),
                 ("M".into(), "Mute"),
                 ("[ ]".into(), "Picture earlier / later"),
+                ("R".into(), "Record / stop recording"),
             ],
         ),
         (

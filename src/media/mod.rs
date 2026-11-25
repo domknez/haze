@@ -2,6 +2,7 @@
 //! [`video`] threads. Audio goes to an output (sound card or AirPlay speaker) as fast
 //! as it takes it and drives the [`clock`]; video waits for the clock, so the picture
 //! matches the sound wherever it is heard, even two seconds later on a speaker.
+//! What plays can be [`record`]ed as it is read.
 
 mod audio;
 mod clock;
@@ -9,12 +10,14 @@ mod demux;
 pub mod frame;
 mod hwaccel;
 mod manifest;
+mod record;
 pub mod subtitle;
 mod video;
 
 use crate::output::Output;
 use crate::sync::Lock;
 pub use frame::VideoFrame;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -98,6 +101,17 @@ pub struct StreamInfo {
     pub subtitle_track: Option<usize>,
 }
 
+/// Whether what plays is being recorded.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Recording {
+    #[default]
+    Off,
+    /// Into this file.
+    To(PathBuf),
+    /// It stopped, for this reason.
+    Failed(String),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
     /// The stream's index in the container.
@@ -130,6 +144,7 @@ pub struct Shared {
     notice: Mutex<Option<String>>,
     /// The subtitles of the track shown, or of a file.
     cues: Mutex<subtitle::Cues>,
+    recording: Mutex<Recording>,
     repaint: Box<dyn Fn() + Send + Sync>,
 }
 
@@ -180,6 +195,8 @@ enum DemuxCmd {
     AudioTrack(usize),
     /// Show the subtitle track at this stream index, or none.
     Subtitles(Option<usize>),
+    /// Record into this file, or stop recording.
+    Record(Option<PathBuf>),
 }
 
 /// A stream being played. Dropping it stops playback.
@@ -198,7 +215,8 @@ pub struct Player {
 pub struct Stopping(Option<JoinHandle<()>>);
 
 impl Stopping {
-    fn wait(self) {
+    /// Wait until the player has stopped and closed what it had open.
+    pub fn wait(self) {
         if let Some(thread) = self.0 {
             let _ = thread.join();
         }
@@ -228,6 +246,7 @@ impl Player {
             resume_at: Mutex::new(None),
             notice: Mutex::new(None),
             cues: Mutex::default(),
+            recording: Mutex::default(),
             repaint: Box::new(repaint),
         });
         let (audio_tx, audio_rx) = channel();
@@ -318,6 +337,16 @@ impl Player {
         let shifted = cues.into_iter().map(|c| subtitle::Cue { start: c.start + offset, end: c.end + offset, ..c }).collect();
         self.shared.cues.locked().replace(shifted);
         (self.shared.repaint)();
+    }
+
+    /// Record what plays into a new file at `path`, or stop recording.
+    pub fn record(&self, path: Option<PathBuf>) {
+        *self.shared.recording.locked() = path.clone().map_or(Recording::Off, Recording::To);
+        let _ = self.demux.send(DemuxCmd::Record(path));
+    }
+
+    pub fn recording(&self) -> Recording {
+        self.shared.recording.locked().clone()
     }
 
     /// The subtitles on screen now.

@@ -98,6 +98,8 @@ pub enum Act {
     ToggleRail,
     /// Open or close the guide.
     ToggleGuide,
+    /// Record the live channel (a folder is asked for first), or stop recording.
+    ToggleRecording,
     /// Show or hide the column of groups.
     ToggleGroups,
     Theme(Appearance),
@@ -181,6 +183,7 @@ impl App {
             Act::ToggleRail => self.panels.rail_open = !self.panels.rail_open,
             Act::ToggleGroups => self.panels.groups_open = !self.panels.groups_open,
             Act::ToggleGuide => self.toggle_guide(),
+            Act::ToggleRecording => self.toggle_recording(ctx),
             Act::GuideChannels(pick) => self.guide_channels(pick),
             Act::ToggleMini => self.toggle_mini(ctx),
             Act::Fill(fill) => {

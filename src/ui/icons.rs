@@ -59,6 +59,10 @@ pub enum Icon {
     Bell,
     /// A globe: free channels from around the world.
     Globe,
+    /// A dot: record.
+    Record,
+    /// A square: stop recording.
+    Stop,
 }
 
 fn p(r: Rect, x: f32, y: f32) -> Pos2 {
@@ -113,6 +117,12 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
     match icon {
         Icon::Play => {
             poly(vec![p(r, 0.26, 0.14), p(r, 0.86, 0.5), p(r, 0.26, 0.86)]);
+        }
+        Icon::Record => {
+            painter.circle_filled(p(r, 0.5, 0.5), w * 0.3, color);
+        }
+        Icon::Stop => {
+            painter.rect_filled(Rect::from_min_max(p(r, 0.24, 0.24), p(r, 0.76, 0.76)), 2.0, color);
         }
         Icon::Pause => {
             painter.rect_filled(Rect::from_min_max(p(r, 0.22, 0.16), p(r, 0.42, 0.84)), 1.5, color);

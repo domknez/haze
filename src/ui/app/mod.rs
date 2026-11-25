@@ -3,13 +3,14 @@
 //! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`];
 //! keeping the channels and the guide fresh in [`refresh`]; the sleep timer in
 //! [`sleep`]; several channels at once in [`multi`]; reminders from the guide in
-//! [`remind`].
+//! [`remind`]; recording the channel that plays in [`record`].
 
 mod act;
 mod input;
 mod mini;
 mod multi;
 mod playback;
+mod record;
 mod refresh;
 mod remind;
 mod sleep;
@@ -126,6 +127,10 @@ pub struct App {
     pub reminding: Vec<Reminder>,
     /// The section of the settings shown last.
     settings_page: crate::ui::views::SettingsPage,
+    /// The recording under way, if any.
+    pub record: Option<record::Record>,
+    /// The folder to record into, being asked for.
+    folder_pick: Load<Option<std::path::PathBuf>>,
 }
 
 impl App {
@@ -149,6 +154,8 @@ impl App {
             reminders: Reminders::load(time::now()),
             reminding: Vec::new(),
             settings_page: Default::default(),
+            record: None,
+            folder_pick: Load::Idle,
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -231,6 +238,7 @@ impl App {
         self.refresh_when_due(ctx);
         self.sleep_when_due(ctx);
         self.remind_when_due(ctx);
+        self.poll_recording();
         for act in self.remotes.presses(self.prefs.volume) {
             self.apply(ctx, act);
         }
@@ -271,6 +279,12 @@ pub fn delay_text(ms: i32) -> String {
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.keep_progress();
+        // A recording's file is finished properly before the app goes.
+        if self.record.is_some()
+            && let Some(player) = self.session.player.take()
+        {
+            player.stop().wait();
+        }
         self.updates.apply_on_exit();
     }
 
@@ -327,6 +341,7 @@ impl eframe::App for App {
             ctx.set_cursor_icon(egui::CursorIcon::None);
         }
         self.reminder_view(&ctx, screen, &mut acts);
+        self.recording_badge(&ctx, screen, &mut acts);
         self.toast_view(&ctx, screen);
         self.dialogs(&ctx, screen);
         for act in acts {
