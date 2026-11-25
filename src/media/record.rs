@@ -252,6 +252,8 @@ mod tests {
             d.send_eof().unwrap();
             take(i, d);
         }
+        // Closed before it goes: Windows won't remove a file still open.
+        drop(input);
         assert_eq!(frames[0], 50, "every picture decodes");
         assert!(frames[1] > 80, "and the sound: {} frames", frames[1]);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
