@@ -382,3 +382,89 @@ fn codec_label(name: &str) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    /// Two seconds of a test picture without sound (so no sound card is needed), in
+    /// MPEG-TS, with the stream's clock starting at 1001.4 s.
+    const PICTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/media/testdata/picture.ts");
+
+    fn play(url: &str) -> Player {
+        let request = Request { url: url.into(), user_agent: None, referrer: None, live: true, start_at: None };
+        Player::open(request, Output::Local, 0.0, None, || {})
+    }
+
+    /// Wait until `done` says so, for a few seconds at most.
+    fn wait_for(player: &Player, done: impl Fn(&Player) -> bool) {
+        let start = Instant::now();
+        while !done(player) && start.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("haze-player-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The pictures in the recording at `path`, and how long it says it is.
+    fn recorded(path: &Path) -> (usize, f64) {
+        let mut input = ffmpeg_next::format::input(path).unwrap();
+        let duration = input.duration() as f64 / f64::from(ffmpeg_next::ffi::AV_TIME_BASE);
+        (input.packets().count(), duration)
+    }
+
+    #[test]
+    fn records_what_plays_until_it_ends() {
+        let path = folder("ends").join("recording.mkv");
+        let player = play(PICTURE);
+        player.record(Some(path.clone()));
+        assert_eq!(player.recording(), Recording::To(path.clone()));
+        wait_for(&player, |p| p.status() == Status::Ended);
+        assert_eq!(player.status(), Status::Ended);
+        player.stop().wait();
+        let (pictures, duration) = recorded(&path);
+        assert_eq!(pictures, 50);
+        // The length is written as the file is finished.
+        assert!((1.9..2.1).contains(&duration), "{duration}");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn stops_recording_when_told() {
+        let dir = folder("told");
+        let (first, second) = (dir.join("first.mkv"), dir.join("second.mkv"));
+        let player = play(PICTURE);
+        player.record(Some(first.clone()));
+        wait_for(&player, |p| p.status() == Status::Playing);
+        player.record(None);
+        assert_eq!(player.recording(), Recording::Off);
+        // A new file starts, and the one before is finished. (The clip is read to its
+        // end well before it has played, so what follows may hold nothing more.)
+        player.record(Some(second.clone()));
+        assert_eq!(player.recording(), Recording::To(second.clone()));
+        wait_for(&player, |p| p.status() == Status::Ended);
+        player.stop().wait();
+        let (pictures, duration) = recorded(&first);
+        assert!(pictures > 0 && duration > 0.0, "{pictures} pictures, {duration} s");
+        assert!(second.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn says_why_recording_failed() {
+        let nowhere = std::env::temp_dir().join("haze-no-such-folder").join("deeper").join("x.mkv");
+        let player = play(PICTURE);
+        player.record(Some(nowhere));
+        wait_for(&player, |p| matches!(p.recording(), Recording::Failed(_)));
+        assert!(matches!(player.recording(), Recording::Failed(why) if why.starts_with("couldn't create the file")));
+        // Playing goes on.
+        wait_for(&player, |p| p.status() == Status::Ended);
+        assert_eq!(player.status(), Status::Ended);
+    }
+}

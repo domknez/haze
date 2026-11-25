@@ -212,6 +212,11 @@ mod tests {
     }
 
     #[test]
+    fn r_records() {
+        assert!(KEYS.iter().any(|(key, act)| *key == Key::R && matches!(act(), Act::ToggleRecording)));
+    }
+
+    #[test]
     fn the_speaker_steps_the_volume_from_where_it_is() {
         let (tx, rx) = std::sync::mpsc::channel();
         let remotes = Remotes { speaker: Some((dacp::Server, rx)), now_playing: None };

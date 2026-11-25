@@ -130,8 +130,140 @@ impl Timeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ffmpeg::media::Type;
+    use std::path::PathBuf;
 
     const S: i64 = 1_000_000;
+
+    /// Two seconds of a test picture (a key frame every 10 frames) and a tone, in
+    /// MPEG-TS, with the stream's clock starting at 1001.4 s and the sound a little
+    /// before the picture.
+    const CLIP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/media/testdata/clip.ts");
+
+    /// A packet of a recorded file: its stream's kind, time in seconds, key frame.
+    #[derive(Debug)]
+    struct Written {
+        kind: Type,
+        pts: f64,
+        key: bool,
+    }
+
+    fn temp_file(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("haze-recorder-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("recording.mkv")
+    }
+
+    /// Record the clip into `path`, leaving out the packets `skip` turns down.
+    fn record(path: &Path, skip: impl Fn(&ffmpeg::Stream, &ffmpeg::Packet) -> bool) {
+        ffmpeg::init().unwrap();
+        let mut input = ffmpeg::format::input(CLIP).unwrap();
+        let video = input.streams().best(Type::Video).map(|s| s.index());
+        let audio = input.streams().best(Type::Audio).map(|s| s.index());
+        let streams: Vec<usize> = video.into_iter().chain(audio).collect();
+        let mut recorder = Recorder::start(path, &input, &streams, video).unwrap();
+        for (stream, packet) in input.packets() {
+            if !skip(&stream, &packet) {
+                recorder.write(&packet).unwrap();
+            }
+        }
+    }
+
+    /// What the file at `path` holds, packet by packet.
+    fn read(path: &Path) -> Vec<Written> {
+        let mut input = ffmpeg::format::input(path).unwrap();
+        let kinds: Vec<(Type, ffmpeg::Rational)> = input.streams().map(|s| (s.parameters().medium(), s.time_base())).collect();
+        input
+            .packets()
+            .map(|(_, p)| {
+                let (kind, base) = kinds[p.stream()];
+                Written { kind, pts: p.pts().unwrap() as f64 * f64::from(base), key: p.is_key() }
+            })
+            .collect()
+    }
+
+    fn codecs(path: &Path) -> Vec<ffmpeg::codec::Id> {
+        ffmpeg::format::input(path).unwrap().streams().map(|s| s.parameters().id()).collect()
+    }
+
+    #[test]
+    fn records_the_picture_and_the_sound_from_zero() {
+        let path = temp_file("whole");
+        record(&path, |_, _| false);
+        assert_eq!(codecs(&path), [ffmpeg::codec::Id::H264, ffmpeg::codec::Id::AAC]);
+        let written = read(&path);
+        let first_picture = written.iter().find(|w| w.kind == Type::Video).unwrap();
+        assert!(first_picture.key, "the file starts at a key frame");
+        // At zero, give or take the frames a picture is decoded ahead of being shown.
+        assert!((0.0..0.1).contains(&first_picture.pts), "and at zero: {first_picture:?}");
+        assert!(written.iter().all(|w| w.pts >= 0.0), "nothing before the start");
+        let pictures = written.iter().filter(|w| w.kind == Type::Video).count();
+        assert_eq!(pictures, 50, "every frame of the two seconds");
+        let last = written.iter().map(|w| w.pts).fold(0.0, f64::max);
+        assert!((1.8..2.1).contains(&last), "two seconds long: {last}");
+        let sounds = written.iter().filter(|w| w.kind == Type::Audio).count();
+        assert!(sounds > 80, "the sound is there: {sounds} packets");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn leaves_out_what_comes_before_a_key_frame() {
+        let path = temp_file("mid-picture");
+        // Join the stream after its first key frame, as when recording starts while
+        // a channel plays: the file waits for the next one.
+        record(&path, |stream, packet| {
+            let pts = packet.pts().unwrap() as f64 * f64::from(stream.time_base());
+            pts < 1001.45
+        });
+        let written = read(&path);
+        let first_picture = written.iter().find(|w| w.kind == Type::Video).unwrap();
+        assert!(first_picture.key && (0.0..0.1).contains(&first_picture.pts), "{first_picture:?}");
+        assert_eq!(written.iter().filter(|w| w.kind == Type::Video).count(), 40, "from the second key frame on");
+        assert!(written.iter().all(|w| w.pts >= 0.0));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn makes_a_file_that_plays_through() {
+        let path = temp_file("plays");
+        record(&path, |_, _| false);
+        let mut input = ffmpeg::format::input(&path).unwrap();
+        let mut decoders: Vec<ffmpeg::decoder::Opened> = input
+            .streams()
+            .map(|s| {
+                let codec = ffmpeg::decoder::find(s.parameters().id());
+                ffmpeg::codec::Context::from_parameters(s.parameters()).unwrap().decoder().open_as(codec).unwrap()
+            })
+            .collect();
+        let mut frames = vec![0; decoders.len()];
+        // Any kind of frame takes what a decoder gives.
+        let mut frame = ffmpeg::frame::Video::empty();
+        let mut take = |i: usize, d: &mut ffmpeg::decoder::Opened| {
+            while d.receive_frame(&mut frame).is_ok() {
+                frames[i] += 1;
+            }
+        };
+        for (stream, packet) in input.packets() {
+            let i = stream.index();
+            decoders[i].send_packet(&packet).unwrap();
+            take(i, &mut decoders[i]);
+        }
+        for (i, d) in decoders.iter_mut().enumerate() {
+            d.send_eof().unwrap();
+            take(i, d);
+        }
+        assert_eq!(frames[0], 50, "every picture decodes");
+        assert!(frames[1] > 80, "and the sound: {} frames", frames[1]);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn says_when_it_cant_create_the_file() {
+        ffmpeg::init().unwrap();
+        let input = ffmpeg::format::input(CLIP).unwrap();
+        let nowhere = std::env::temp_dir().join("haze-no-such-folder").join("deeper").join("x.mkv");
+        assert!(Recorder::start(&nowhere, &input, &[0], Some(0)).is_err());
+    }
 
     #[test]
     fn starts_at_zero_on_a_key_frame() {
@@ -140,6 +272,13 @@ mod tests {
         assert_eq!(t.place(0, 100 * S, true), Some(100 * S));
         assert_eq!(t.place(1, 100 * S + 20_000, false), Some(100 * S));
         assert_eq!(t.place(1, 99 * S, false), None, "sound from before the start");
+    }
+
+    #[test]
+    fn without_a_picture_starts_at_once() {
+        let mut t = Timeline::new(1);
+        assert_eq!(t.place(0, 5 * S, true), Some(5 * S));
+        assert_eq!(t.place(0, 5 * S + 21_333, true), Some(5 * S));
     }
 
     #[test]

@@ -51,16 +51,15 @@ impl App {
             self.folder_pick = Load::Idle;
         }
         let Some(record) = &self.record else { return };
-        let same = !self.multi.on() && matches!(&self.session.playing, Some(Playing::Live { key }) if *key == record.key);
         let state = self.session.player.as_ref().map(|p| p.recording());
-        match state {
-            _ if !same => self.stop_recording(),
-            Some(Recording::Off) => self.record_next_file(),
-            Some(Recording::Failed(why)) => {
+        match next_step(&record.key, self.session.playing.as_ref(), self.multi.on(), state) {
+            Step::Stop => self.stop_recording(),
+            Step::NextFile => self.record_next_file(),
+            Step::Failed(why) => {
                 self.record = None;
                 self.show_toast(&format!("Recording stopped: {why}"));
             }
-            Some(Recording::To(_)) | None => {}
+            Step::Nothing => {}
         }
     }
 
@@ -91,11 +90,40 @@ impl App {
             player.record(None);
         }
         let saved: Vec<&PathBuf> = record.files.iter().filter(|f| f.exists()).collect();
-        match saved[..] {
-            [] => self.show_toast("Recording stopped before anything was saved"),
-            [file] => self.show_toast(&format!("Recording saved: {}", file_name(file))),
-            _ => self.show_toast(&format!("Recording saved: {} files in {}", saved.len(), file_name(&record.folder))),
-        }
+        self.show_toast(&saved_text(&saved, &record.folder));
+    }
+}
+
+/// What a recording calls for, now that its player says how it's going.
+#[derive(Debug, PartialEq)]
+enum Step {
+    Nothing,
+    /// The channel recorded no longer plays (alone): the recording is over.
+    Stop,
+    /// A new player took over the channel (after a drop-out): it records into a new file.
+    NextFile,
+    /// Writing failed, for this reason.
+    Failed(String),
+}
+
+/// What the recording of channel `key` calls for, while `playing` plays (in
+/// multiview, if `multi`) and its player's recording is in `state`.
+fn next_step(key: &str, playing: Option<&Playing>, multi: bool, state: Option<Recording>) -> Step {
+    let same = !multi && matches!(playing, Some(Playing::Live { key: k }) if k == key);
+    match state {
+        _ if !same => Step::Stop,
+        Some(Recording::Off) => Step::NextFile,
+        Some(Recording::Failed(why)) => Step::Failed(why),
+        Some(Recording::To(_)) | None => Step::Nothing,
+    }
+}
+
+/// What was saved, for the notice when a recording stops.
+fn saved_text(files: &[&PathBuf], folder: &Path) -> String {
+    match files {
+        [] => "Recording stopped before anything was saved".into(),
+        [file] => format!("Recording saved: {}", file_name(file)),
+        _ => format!("Recording saved: {} files in {}", files.len(), file_name(folder)),
     }
 }
 
@@ -142,6 +170,54 @@ fn file_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live(key: &str) -> Playing {
+        Playing::Live { key: key.into() }
+    }
+
+    #[test]
+    fn goes_on_while_the_channel_plays() {
+        let to = Some(Recording::To("a.mkv".into()));
+        assert_eq!(next_step("hrt1", Some(&live("hrt1")), false, to.clone()), Step::Nothing);
+        // Between one player and the next.
+        assert_eq!(next_step("hrt1", Some(&live("hrt1")), false, None), Step::Nothing);
+    }
+
+    #[test]
+    fn stops_when_the_channel_does() {
+        let to = || Some(Recording::To("a.mkv".into()));
+        assert_eq!(next_step("hrt1", Some(&live("hrt2")), false, to()), Step::Stop, "another channel");
+        assert_eq!(next_step("hrt1", None, false, None), Step::Stop, "nothing plays");
+        assert_eq!(next_step("hrt1", Some(&live("hrt1")), true, to()), Step::Stop, "watched alongside others");
+        let archive = Playing::Catchup {
+            key: "hrt1".into(),
+            programme: crate::iptv::model::Programme { start: 0, stop: 60, title: "News".into(), desc: String::new() },
+        };
+        assert_eq!(next_step("hrt1", Some(&archive), false, to()), Step::Stop, "the archive of the same channel");
+    }
+
+    #[test]
+    fn carries_on_in_a_new_file_after_a_drop_out() {
+        assert_eq!(next_step("hrt1", Some(&live("hrt1")), false, Some(Recording::Off)), Step::NextFile);
+    }
+
+    #[test]
+    fn tells_why_it_failed() {
+        let failed = Some(Recording::Failed("couldn't write to the file: No space left on device".into()));
+        assert_eq!(
+            next_step("hrt1", Some(&live("hrt1")), false, failed),
+            Step::Failed("couldn't write to the file: No space left on device".into())
+        );
+    }
+
+    #[test]
+    fn says_what_was_saved() {
+        let folder = PathBuf::from("/Movies");
+        let (a, b) = (folder.join("HRT 1 2026-11-25 20.15.mkv"), folder.join("HRT 1 2026-11-25 20.40.mkv"));
+        assert_eq!(saved_text(&[], &folder), "Recording stopped before anything was saved");
+        assert_eq!(saved_text(&[&a], &folder), "Recording saved: HRT 1 2026-11-25 20.15.mkv");
+        assert_eq!(saved_text(&[&a, &b], &folder), "Recording saved: 2 files in Movies");
+    }
 
     #[test]
     fn names_files_safely() {
