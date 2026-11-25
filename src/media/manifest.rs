@@ -1,29 +1,54 @@
-//! Quick starts for HLS: a master playlist lists the same channel in several
-//! qualities, and ffmpeg would download and probe every one of them before playing.
-//! When each quality carries its own sound, the best one is opened directly.
+//! Where to open a stream from, worked out before ffmpeg opens it.
+//!
+//! - HLS: a master playlist lists the same channel in several qualities, and ffmpeg
+//!   would download and probe every one of them before playing. When each quality
+//!   carries its own sound, the best one is opened directly.
+//! - DASH: ffmpeg finds a manifest's segments from the address it was given, not
+//!   from the one a redirect led to, so they would not be found. A manifest is
+//!   opened from where it really is.
 
 use std::time::Duration;
 use ureq::ResponseExt;
 
-/// The media playlist to open instead of `url`, if `url` is a master playlist whose
+/// Where to open the stream at `url` from: the best quality of an HLS master
+/// playlist, a DASH manifest's address after redirects, otherwise `url` itself.
+pub fn location(url: &str, user_agent: &str, referrer: Option<&str>) -> String {
+    let found = if names_file(url, ".m3u8") {
+        best_quality(url, user_agent, referrer)
+    } else if names_file(url, ".mpd") {
+        fetch(url, user_agent, referrer).map(|resp| resp.get_uri().to_string())
+    } else {
+        None
+    };
+    found.unwrap_or_else(|| url.to_string())
+}
+
+/// The media playlist of the best quality, if `url` is a master playlist whose
 /// qualities are self-contained.
-pub fn pick_variant(url: &str, user_agent: &str, referrer: Option<&str>) -> Option<String> {
-    let lower = url.to_ascii_lowercase();
-    if !crate::iptv::http::is_web(&lower) || !lower.split('?').next()?.ends_with(".m3u8") {
-        return None;
-    }
+fn best_quality(url: &str, user_agent: &str, referrer: Option<&str>) -> Option<String> {
+    let mut resp = fetch(url, user_agent, referrer)?;
+    // Redirects: relative URIs resolve against where the playlist really is.
+    let base = resp.get_uri().to_string();
+    let text = resp.body_mut().with_config().limit(1 << 20).read_to_string().ok()?;
+    let chosen = best_variant(&text)?;
+    Some(resolve(&base, &chosen))
+}
+
+/// The answer to a GET of `url`, after redirects.
+fn fetch(url: &str, user_agent: &str, referrer: Option<&str>) -> Option<ureq::http::Response<ureq::Body>> {
     let agent: ureq::Agent =
         ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(8))).user_agent(user_agent).build().into();
     let mut req = agent.get(url);
     if let Some(r) = referrer {
         req = req.header("Referer", r);
     }
-    let mut resp = req.call().ok()?;
-    // Redirects: relative URIs resolve against where the playlist really is.
-    let base = resp.get_uri().to_string();
-    let text = resp.body_mut().with_config().limit(1 << 20).read_to_string().ok()?;
-    let chosen = best_variant(&text)?;
-    Some(resolve(&base, &chosen))
+    req.call().ok()
+}
+
+/// Whether `url` is a web address of a file with the extension `ext` (lowercase).
+fn names_file(url: &str, ext: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    crate::iptv::http::is_web(&lower) && lower.split('?').next().is_some_and(|path| path.ends_with(ext))
 }
 
 /// The URI of the highest-bandwidth variant, unless the playlist keeps sound (or
@@ -75,6 +100,15 @@ mod tests {
         assert_eq!(best_variant("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"), None, "already a media playlist");
         let separate_audio = format!("{MASTER}#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",URI=\"a.m3u8\"\n");
         assert_eq!(best_variant(&separate_audio), None);
+    }
+
+    #[test]
+    fn knows_playlists_and_manifests() {
+        assert!(names_file("https://h/tv/ch1/index.mpd", ".mpd"));
+        assert!(names_file("https://h/tv/ch1/INDEX.MPD?t=1", ".mpd"));
+        assert!(names_file("http://h/live/master.m3u8?t=1", ".m3u8"));
+        assert!(!names_file("https://h/tv/ch1/index.m3u8", ".mpd"));
+        assert!(!names_file("/local/file.mpd", ".mpd"));
     }
 
     #[test]

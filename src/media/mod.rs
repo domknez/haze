@@ -7,8 +7,8 @@ mod audio;
 mod clock;
 mod demux;
 pub mod frame;
-mod hls;
 mod hwaccel;
+mod manifest;
 pub mod subtitle;
 mod video;
 

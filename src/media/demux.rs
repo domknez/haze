@@ -119,11 +119,11 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
 }
 
 impl<'a> Demuxer<'a> {
-    /// Open the stream (the best quality of an HLS playlist) and pick what plays;
-    /// None when stopped meanwhile.
+    /// Open the stream (the best quality of an HLS playlist, a DASH manifest from
+    /// where it was redirected) and pick what plays; None when stopped meanwhile.
     fn open(shared: &'a Arc<Shared>, request: &super::Request) -> Result<Option<Self>, Error> {
         let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
-        let url = super::hls::pick_variant(&request.url, user_agent, request.referrer.as_deref()).unwrap_or_else(|| request.url.clone());
+        let url = super::manifest::location(&request.url, user_agent, request.referrer.as_deref());
         if shared.stopped() {
             return Ok(None);
         }

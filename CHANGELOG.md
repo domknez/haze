@@ -9,6 +9,8 @@
   stream are left out; channel names lose the notes some lists add (`(720p)`,
   `[Geo-blocked]`, `Ⓖ`), and a channel in several groups (`Culture;Documentary`)
   goes in the first
+- DASH streams (`.mpd`) play on macOS too, and those behind a redirect play
+  everywhere (ffmpeg looked for their pieces at the address before the redirect)
 
 ## 0.1.10 (2026-11-23)
 
