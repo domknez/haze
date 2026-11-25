@@ -239,9 +239,18 @@ impl App {
                             .color(p.dim),
                     );
                     ui.add_space(22.0);
-                    if widgets::pill(ui, Some(crate::ui::icons::Icon::Plus), "Add source", true).clicked() {
-                        acts.push(Act::AddSource);
-                    }
+                    ui.horizontal(|ui| {
+                        let gap = 10.0;
+                        let w = widgets::pill_width(ui, "Add source", true) + gap + widgets::pill_width(ui, "Try free channels", true);
+                        ui.add_space((ui.available_width() - w).max(0.0) / 2.0);
+                        ui.spacing_mut().item_spacing.x = gap;
+                        if widgets::pill(ui, Some(crate::ui::icons::Icon::Plus), "Add source", true).clicked() {
+                            acts.push(Act::AddSource);
+                        }
+                        if widgets::pill(ui, Some(crate::ui::icons::Icon::Globe), "Try free channels", false).clicked() {
+                            acts.push(Act::AddFree);
+                        }
+                    });
                     ui.add_space(10.0);
                     ui.label(egui::RichText::new("or drop a playlist file on this window").font(typography::secondary()).color(p.faint));
                 });

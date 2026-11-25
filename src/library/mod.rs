@@ -2,14 +2,17 @@
 //! loading what each offers. Next to them: [`catchup`] URLs for programmes that
 //! already aired, [`Marks`] (favourite and recently watched channels),
 //! [`Progress`] (how far movies and episodes were watched) and [`Reminders`]
-//! (programmes to be reminded of).
+//! (programmes to be reminded of). [`Free`] names lists of free-to-air channels
+//! to start with.
 
 mod catchup;
+mod free;
 mod marks;
 mod progress;
 mod reminders;
 
 pub use catchup::catchup_url;
+pub use free::Free;
 pub use marks::Marks;
 pub use progress::{Left, Progress};
 pub use reminders::{LEAD as REMIND_LEAD, Reminder, Reminders};

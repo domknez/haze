@@ -1,7 +1,8 @@
-//! Adding or editing a source: a playlist link, a playlist file, or an Xtream Codes
-//! login. The source is checked (its playlist loaded) before it is saved.
+//! Adding or editing a source: a playlist link, a playlist file, an Xtream Codes
+//! login, or one of the public lists of free channels. The source is checked (its
+//! playlist loaded) before it is saved.
 
-use crate::library::{self, Checked, Kind, Source};
+use crate::library::{self, Checked, Free, Kind, Source};
 use crate::ui::icons::Icon;
 use crate::ui::load::Load;
 use crate::ui::style::{colors, typography};
@@ -13,6 +14,17 @@ enum Mode {
     Link,
     File,
     Xtream,
+    Free,
+}
+
+/// Picking a list of free channels.
+#[derive(Default)]
+struct FreePick {
+    by_topic: bool,
+    filter: String,
+    picked: Option<Free>,
+    /// The computer's country, once looked up.
+    home: Option<Option<Free>>,
 }
 
 pub struct SourceForm {
@@ -30,6 +42,7 @@ pub struct SourceForm {
     user: String,
     password: String,
     check: Load<Checked>,
+    free: FreePick,
 }
 
 const WIDTH: f32 = 520.0;
@@ -49,7 +62,26 @@ impl SourceForm {
             user: String::new(),
             password: String::new(),
             check: Load::Idle,
+            free: FreePick::default(),
         }
+    }
+
+    /// A new source from the free lists, the computer's country picked if it has one.
+    pub fn free() -> SourceForm {
+        let mut f = SourceForm { mode: Mode::Free, ..SourceForm::new() };
+        if let Some(home) = f.free.home() {
+            f.pick_free(home);
+        }
+        f
+    }
+
+    /// Pick `list`, naming the source after it.
+    fn pick_free(&mut self, list: Free) {
+        // The name follows the pick unless one was typed.
+        if self.name.is_empty() || self.free.picked.is_some_and(|p| self.name == free_name(p)) {
+            self.name = free_name(list);
+        }
+        self.free.picked = Some(list);
     }
 
     pub fn for_file(path: &str) -> SourceForm {
@@ -101,6 +133,7 @@ impl SourceForm {
             Mode::Link => self.url.trim().contains("://"),
             Mode::File => !self.path.trim().is_empty(),
             Mode::Xtream => !self.server.trim().is_empty() && !self.user.trim().is_empty() && !self.password.is_empty(),
+            Mode::Free => self.free.picked.is_some(),
         }
     }
 
@@ -113,6 +146,7 @@ impl SourceForm {
                 let login = crate::iptv::xtream::Login::new(&self.server, &self.user, "");
                 Kind::Xtream { server: login.server, user: login.user }
             }
+            Mode::Free => Kind::Playlist { location: self.free.picked.map(Free::url).unwrap_or_default(), epg: None },
         };
         let name = match self.name.trim() {
             "" => default_name(&kind),
@@ -147,9 +181,11 @@ impl SourceForm {
                             .color(p.text),
                     );
                     ui.label(
-                        egui::RichText::new("A playlist by link or from a file, or your provider's login (Xtream Codes).")
-                            .font(typography::body())
-                            .color(p.dim),
+                        egui::RichText::new(
+                            "A playlist by link or from a file, your provider's login (Xtream Codes), or free channels to start with.",
+                        )
+                        .font(typography::body())
+                        .color(p.dim),
                     );
                     ui.add_space(12.0);
                     self.mode_tabs(ui);
@@ -162,9 +198,13 @@ impl SourceForm {
                         ui.add_space(6.0);
                     }
                     ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("Passwords are kept in the system keychain").font(typography::secondary()).color(p.faint),
-                        );
+                        if self.mode == Mode::Xtream {
+                            ui.label(
+                                egui::RichText::new("Passwords are kept in the system keychain")
+                                    .font(typography::secondary())
+                                    .color(p.faint),
+                            );
+                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if busy {
                                 let (r, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
@@ -191,7 +231,12 @@ impl SourceForm {
         let p = colors();
         let (rect, _) = ui.allocate_exact_size(vec2(WIDTH, 36.0), Sense::hover());
         ui.painter().rect_filled(rect, CornerRadius::same(12), p.hl);
-        let modes = [(Mode::Link, Icon::Link, "M3U link"), (Mode::File, Icon::File, "M3U file"), (Mode::Xtream, Icon::Key, "Xtream Codes")];
+        let modes = [
+            (Mode::Link, Icon::Link, "M3U link"),
+            (Mode::File, Icon::File, "M3U file"),
+            (Mode::Xtream, Icon::Key, "Xtream Codes"),
+            (Mode::Free, Icon::Globe, "Free TV"),
+        ];
         let w = (rect.width() - 6.0) / modes.len() as f32;
         for (i, (mode, icon, label)) in modes.into_iter().enumerate() {
             let r = Rect::from_min_size(rect.min + vec2(3.0 + i as f32 * w, 3.0), vec2(w, 30.0));
@@ -208,9 +253,15 @@ impl SourceForm {
             let x = r.center().x - total / 2.0;
             crate::ui::icons::paint(ui.painter(), Rect::from_center_size(egui::pos2(x + 7.0, r.center().y), vec2(14.0, 14.0)), icon, fg);
             ui.painter().galley(egui::pos2(x + 22.0, r.center().y - galley.size().y / 2.0), galley, fg);
-            if resp.clicked() {
+            if resp.clicked() && self.mode != mode {
                 self.mode = mode;
                 self.check = Load::Idle;
+                if mode == Mode::Free
+                    && self.free.picked.is_none()
+                    && let Some(home) = self.free.home()
+                {
+                    self.pick_free(home);
+                }
             }
         }
     }
@@ -219,6 +270,10 @@ impl SourceForm {
         let label = |ui: &mut egui::Ui, text: &str| {
             ui.label(egui::RichText::new(text).font(typography::small_strong()).color(colors().dim));
         };
+        if self.mode == Mode::Free {
+            self.free_fields(ui);
+            ui.add_space(6.0);
+        }
         label(ui, "Name");
         widgets::field(ui, &mut self.name, "e.g. Home list", false, WIDTH);
         ui.add_space(6.0);
@@ -270,8 +325,93 @@ impl SourceForm {
                         .color(colors().faint),
                 );
             }
+            Mode::Free => {
+                ui.label(
+                    egui::RichText::new(
+                        "Channels their broadcasters offer free to everyone, as listed by the Free-TV project. \
+                         Some only play in their own country, and most have no guide.",
+                    )
+                    .font(typography::secondary())
+                    .color(colors().faint),
+                );
+            }
         }
     }
+
+    /// The lists of free channels, by country or by topic, to pick one from.
+    fn free_fields(&mut self, ui: &mut egui::Ui) {
+        let p = colors();
+        let options = [(false, Some(Icon::Globe), "By country"), (true, Some(Icon::List), "By topic")];
+        if let Some(by) = widgets::segments(ui, "free-by", &options, self.free.by_topic, WIDTH) {
+            self.free.by_topic = by;
+            self.free.filter.clear();
+        }
+        ui.add_space(8.0);
+        let hint = if self.free.by_topic { "Find a topic" } else { "Find a country" };
+        widgets::filter_field(ui, &mut self.free.filter, hint, WIDTH);
+        ui.add_space(6.0);
+        let home = self.free.home();
+        let filter = self.free.filter.trim().to_lowercase();
+        let mut lists: Vec<Free> = if self.free.by_topic { Free::topics().collect() } else { Free::countries().collect() };
+        if let Some(h) = home.filter(|_| !self.free.by_topic) {
+            lists.retain(|l| *l != h);
+            lists.insert(0, h);
+        }
+        lists.retain(|l| filter.is_empty() || l.name().to_lowercase().contains(&filter));
+        let mut pick = None;
+        egui::ScrollArea::vertical().id_salt(("free-lists", self.free.by_topic)).max_height(212.0).auto_shrink([false, true]).show(
+            ui,
+            |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                if lists.is_empty() {
+                    ui.label(egui::RichText::new("None by that name").font(typography::secondary()).color(p.faint));
+                }
+                for list in lists {
+                    let on = self.free.picked == Some(list);
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+                    if on || resp.hovered() {
+                        ui.painter().rect_filled(r, CornerRadius::same(8), if on { p.hl_strong } else { p.hl });
+                    }
+                    let font = if on { typography::small_strong() } else { typography::secondary() };
+                    ui.painter().text(egui::pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, list.name(), font, p.text);
+                    let mut right = r.right() - 10.0;
+                    if on {
+                        let check = Rect::from_center_size(egui::pos2(right - 7.0, r.center().y), vec2(14.0, 14.0));
+                        crate::ui::icons::paint(ui.painter(), check, Icon::Check, p.accent);
+                        right -= 24.0;
+                    }
+                    if Some(list) == home {
+                        ui.painter().text(
+                            egui::pos2(right, r.center().y),
+                            Align2::RIGHT_CENTER,
+                            "Your country",
+                            typography::meta(),
+                            p.faint,
+                        );
+                    }
+                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                        pick = Some(list);
+                    }
+                }
+            },
+        );
+        if let Some(list) = pick {
+            self.pick_free(list);
+            self.check = Load::Idle;
+        }
+    }
+}
+
+impl FreePick {
+    /// The computer's country, looked up the first time it's asked for.
+    fn home(&mut self) -> Option<Free> {
+        *self.home.get_or_insert_with(Free::home)
+    }
+}
+
+/// `Free TV · Croatia`
+fn free_name(list: Free) -> String {
+    format!("Free TV · {}", list.name())
 }
 
 fn default_name(kind: &Kind) -> String {

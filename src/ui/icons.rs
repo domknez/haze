@@ -57,6 +57,8 @@ pub enum Icon {
     File,
     /// A bell: a reminder.
     Bell,
+    /// A globe: free channels from around the world.
+    Globe,
 }
 
 fn p(r: Rect, x: f32, y: f32) -> Pos2 {
@@ -306,6 +308,15 @@ pub fn paint(painter: &Painter, r: Rect, icon: Icon, color: Color32) {
                 painter.add(Shape::closed_line(vec![pa + n, pb + n, pb - n, pa - n], s));
             }
             line(p(r, 0.38, 0.62), p(r, 0.62, 0.38));
+        }
+        Icon::Globe => {
+            let s = Stroke::new(stroke.width * 0.85, color);
+            let c = p(r, 0.5, 0.5);
+            painter.circle_stroke(c, w * 0.38, s);
+            let meridian: Vec<Pos2> =
+                (0..=24).map(|i| i as f32 / 24.0 * 2.0 * PI).map(|a| c + vec2(a.cos() * w * 0.16, a.sin() * w * 0.38)).collect();
+            painter.add(Shape::closed_line(meridian, s));
+            line(p(r, 0.12, 0.5), p(r, 0.88, 0.5));
         }
         Icon::Key => {
             painter.circle_stroke(p(r, 0.32, 0.5), w * 0.17, stroke);

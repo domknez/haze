@@ -44,24 +44,36 @@ pub fn round_button(ui: &mut Ui, icon: Icon, size: f32, fill: Color32, color: Co
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Space on each side of a [`pill`]'s content, and what its icon takes.
+const PILL_PAD: f32 = 12.0;
+const PILL_ICON: f32 = 22.0;
+
 /// A rounded button with an optional icon; `filled` uses the accent.
 pub fn pill(ui: &mut Ui, icon: Option<Icon>, text: &str, filled: bool) -> Response {
     let p = colors();
-    let font = typography::control();
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, Color32::PLACEHOLDER);
-    let icon_w = if icon.is_some() { 22.0 } else { 0.0 };
-    let size = vec2(galley.size().x + icon_w + 24.0, 32.0);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), typography::control(), Color32::PLACEHOLDER);
+    let size = vec2(pill_content_width(galley.size().x, icon.is_some()), 32.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let (fill, fg) = if filled { (p.accent, p.on_accent) } else { (p.hl, p.text) };
     let fill = if resp.hovered() { if filled { fill.gamma_multiply(0.9) } else { p.hl_strong } } else { fill };
     ui.painter().rect_filled(rect, CornerRadius::same(metrics::CONTROL_RADIUS), fill);
-    let mut x = rect.left() + 12.0;
+    let mut x = rect.left() + PILL_PAD;
     if let Some(icon) = icon {
         icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 8.0, rect.center().y), vec2(16.0, 16.0)), icon, fg);
-        x += icon_w;
+        x += PILL_ICON;
     }
     ui.painter().galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley, fg);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// How wide a [`pill`] with `text` (and an icon, if `icon`) is.
+pub fn pill_width(ui: &Ui, text: &str, icon: bool) -> f32 {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), typography::control(), Color32::PLACEHOLDER);
+    pill_content_width(galley.size().x, icon)
+}
+
+fn pill_content_width(text: f32, icon: bool) -> f32 {
+    text + if icon { PILL_ICON } else { 0.0 } + 2.0 * PILL_PAD
 }
 
 /// A small monospaced tag (`LIVE`, `XC`, `HD`).

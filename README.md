@@ -29,6 +29,7 @@ Add as many as you like and switch between them from the top bar. Each is checke
 | **M3U link** | a playlist URL (`.m3u` / `.m3u8`), with the guide it names (`url-tvg`) or one you give. An Xtream panel's link (`…/get.php?username=…&password=…`) signs in to the panel instead, for posters, ratings, plots and seasons, and its password moves to the keychain |
 | **M3U file** | a playlist on disk — or drop the file on the window |
 | **Xtream Codes** | server, user name and password: live channels, the guide, the archive, movies and series from one login; account status and expiry in the source menu |
+| **Free TV** | free-to-air channels to start with, from the lists the [Free-TV](https://github.com/Free-TV/IPTV) project keeps: only channels their broadcasters offer free to everyone, nothing paid. By country (yours first, from the computer's region or time zone) or by topic (news, documentaries, music). Also on the first screen, as *Try free channels*. Some only play in their own country, and most have no guide |
 
 Playlists that carry a video library too are sorted out on their own: movies go to
 *Movies*, episodes are gathered into series and seasons under *Series*, and only the

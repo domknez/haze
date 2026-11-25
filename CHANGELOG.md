@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Free channels to start with: *Try free channels* on the first screen, or *Free TV*
+  in Add source, adds one of the lists the Free-TV project keeps of channels their
+  broadcasters offer free to everyone, by country (yours first) or by topic
+- Playlists: entries that are a YouTube, Dailymotion or Twitch page rather than a
+  stream are left out; channel names lose the notes some lists add (`(720p)`,
+  `[Geo-blocked]`, `Ⓖ`), and a channel in several groups (`Culture;Documentary`)
+  goes in the first
+
 ## 0.1.10 (2026-11-23)
 
 - Settings are a window now, in place of a menu: appearance, the picture, sources,

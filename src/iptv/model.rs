@@ -110,13 +110,36 @@ impl Episode {
     }
 }
 
+/// A name without the notes public lists put after it: `HRT 1 (720p) [Geo-blocked]`
+/// and `HRT 1 Ⓖ` are `HRT 1`.
+fn without_labels(mut name: &str) -> &str {
+    loop {
+        let before = name;
+        for label in ["[Geo-blocked]", "[Not 24/7]", "Ⓖ", "Ⓢ", "Ⓨ"] {
+            name = name.strip_suffix(label).unwrap_or(name).trim_end();
+        }
+        if let Some(head) = name.strip_suffix("p)")
+            && let Some((head, digits)) = head.rsplit_once('(')
+            && (3..=4).contains(&digits.len())
+            && digits.bytes().all(|b| b.is_ascii_digit())
+            && !head.trim_end().is_empty()
+        {
+            name = head.trim_end();
+        }
+        if name == before {
+            return name;
+        }
+    }
+}
+
 /// A name as it should read: accents joined to their letters, and the small raised
 /// letters providers tag channels with (`ᶠʰᵈ`, `ᴴᴰ`, `ʰᵉᵛᶜ`), which most fonts lack,
 /// written as plain capitals (`FHD`).
 pub fn tidy_name(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
+    let name = without_labels(name.trim());
     if name.is_ascii() {
-        return name.trim().to_string();
+        return name.to_string();
     }
     let mut out = String::with_capacity(name.len());
     let mut chars = name.nfc().peekable();
@@ -392,6 +415,10 @@ mod tests {
         assert_eq!(tidy_name("ᵁᴴᴰ Cinema"), "UHD Cinema");
         assert_eq!(tidy_name("Zu\u{308}rich Cafe\u{301}"), "Zürich Café");
         assert_eq!(tidy_name("Area 5 m²"), "Area 5 m²");
+        assert_eq!(tidy_name("HRT 1 HD (1080p) [Geo-blocked]"), "HRT 1 HD");
+        assert_eq!(tidy_name("Klasik (576p) [Not 24/7]"), "Klasik");
+        assert_eq!(tidy_name("OTV (Croatia) (720p)"), "OTV (Croatia)");
+        assert_eq!(tidy_name("Channel (2024p) x"), "Channel (2024p) x");
     }
 
     fn programme(start: i64, stop: i64) -> Programme {

@@ -102,6 +102,8 @@ pub enum Act {
     ToggleGroups,
     Theme(Appearance),
     AddSource,
+    /// Add one of the public lists of free channels.
+    AddFree,
     EditSource(usize),
     RemoveSource(usize),
     /// A source checked and ready to save, with what it offers.
@@ -162,6 +164,7 @@ impl App {
                 self.start_refresh(ctx, true);
             }
             Act::AddSource => self.open_form(SourceForm::new()),
+            Act::AddFree => self.open_form(SourceForm::free()),
             Act::EditSource(i) => {
                 if let Some(form) = self.sources.get(i).map(SourceForm::edit) {
                     self.open_form(form);

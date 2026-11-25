@@ -68,6 +68,9 @@ pub fn parse_with(text: &str, shelves: &BTreeMap<String, Shelf>) -> Catalog {
             }
         } else if line.starts_with('#') {
             // Other directives (#KODIPROP, #EXTBYT, comments) carry nothing we use.
+        } else if is_web_page(line) {
+            // A video site's page, not a stream: nothing here can play it.
+            entry = None;
         } else if entry.is_some() || line.contains("://") {
             // A bare URL without #EXTINF is still playable, named after itself.
             entries.push((entry.take().unwrap_or_default(), line.to_string()));
@@ -231,6 +234,15 @@ fn trailing_number(name: &str) -> (&str, Option<u32>) {
     (head.trim_end_matches(|c: char| c.is_whitespace() || "-–:|.,#".contains(c)), name[head.len()..].parse().ok())
 }
 
+/// A page on a video site (YouTube, Dailymotion, Twitch) that some lists give for a
+/// channel: a player of its own is needed for it.
+fn is_web_page(url: &str) -> bool {
+    let Some(rest) = url.split_once("://").map(|(_, r)| r) else { return false };
+    let host = rest.split(['/', '?', ':']).next().unwrap_or_default().to_ascii_lowercase();
+    let host = host.strip_prefix("www.").or_else(|| host.strip_prefix("m.")).unwrap_or(&host);
+    ["youtube.com", "youtu.be", "dailymotion.com", "twitch.tv"].contains(&host)
+}
+
 #[derive(Default)]
 struct Entry {
     name: String,
@@ -268,8 +280,11 @@ impl Entry {
 }
 
 impl Entry {
+    /// The group named, or the first of several (`Culture;Documentary`); public lists
+    /// call channels in none `Undefined`.
     fn group(&self) -> String {
-        self.group.clone().filter(|g| !g.is_empty()).unwrap_or_else(|| NO_GROUP.to_string())
+        let first = self.group.as_deref().and_then(|g| g.split(';').map(str::trim).find(|g| !g.is_empty()));
+        first.filter(|g| *g != "Undefined").unwrap_or(NO_GROUP).to_string()
     }
 
     fn into_movie(self, url: &str) -> Movie {
@@ -433,6 +448,27 @@ http://example/bare.ts
         assert_eq!(c.channels[3].name, "http://example/bare.ts");
         assert_eq!(c.channels[3].group, NO_GROUP);
         assert_eq!(c.groups, ["Croatia", "Sports, Live", "Music", NO_GROUP]);
+    }
+
+    #[test]
+    fn reads_public_lists() {
+        let c = parse(
+            "#EXTM3U\n#EXTINF:-1 group-title=\"Culture;Documentary\",Klasik (576p) [Not 24/7]\nhttp://a/1.m3u8\n\
+             #EXTINF:-1 group-title=\"Undefined\",RTG int.\nhttp://a/2.m3u8\n",
+        );
+        assert_eq!(c.channels[0].group, "Culture");
+        assert_eq!(c.channels[0].name, "Klasik");
+        assert_eq!(c.channels[1].group, NO_GROUP);
+    }
+
+    #[test]
+    fn leaves_out_video_site_pages() {
+        let c = parse(
+            "#EXTM3U\n#EXTINF:-1,HRT 1 Ⓖ\nhttp://a/hrt1.mpd\n#EXTINF:-1,N1 Ⓨ\nhttps://www.youtube.com/watch?v=x\n\
+             #EXTINF:-1,Z1 Ⓨ\nhttps://youtu.be/y\n#EXTINF:-1,SBTV Ⓢ\nhttp://a/sbtv.m3u8\n",
+        );
+        let names: Vec<&str> = c.channels.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["HRT 1", "SBTV"]);
     }
 
     #[test]

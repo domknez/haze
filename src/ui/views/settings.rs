@@ -171,9 +171,15 @@ impl App {
             ui.add_space(4.0);
         }
         ui.add_space(6.0);
-        if widgets::pill(ui, Some(Icon::Plus), "Add source…", false).clicked() {
-            acts.push(Act::AddSource);
-        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if widgets::pill(ui, Some(Icon::Plus), "Add source…", false).clicked() {
+                acts.push(Act::AddSource);
+            }
+            if widgets::pill(ui, Some(Icon::Globe), "Free channels…", false).clicked() {
+                acts.push(Act::AddFree);
+            }
+        });
         if self.source().is_none() {
             return;
         }
