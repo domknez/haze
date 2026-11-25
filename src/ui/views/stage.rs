@@ -309,36 +309,52 @@ impl App {
             });
     }
 
-    /// While recording: a red dot and how long it's been going, in a corner over
-    /// everything (even when the panels are hidden); a click stops it.
+    /// What's being recorded, at the top right: the channel that plays (stopped
+    /// with R), and programmes from the guide, each with how long it's been going.
+    /// A click stops one.
     pub fn recording_badge(&mut self, ctx: &egui::Context, screen: Rect, acts: &mut Vec<Act>) {
-        let Some(record) = &self.record else { return };
+        let mut badges: Vec<(String, std::time::Instant, String, Act)> = Vec::new();
+        if let Some(record) = &self.record {
+            badges.push((String::new(), record.since, "Stop recording (R)".into(), Act::ToggleRecording));
+        }
+        for taped in &self.taped {
+            let plan = &taped.plan;
+            let stop = Act::Record(plan.channel.clone(), plan.programme());
+            badges.push((format!("{} ", plan.title), taped.since, format!("Stop recording {}", plan.title), stop));
+        }
+        if badges.is_empty() {
+            return;
+        }
         let p = colors();
         let top = if self.mini_on() || !self.panels.controls_shown {
             screen.top() + 8.0
         } else {
             screen.top() + metrics::GAP * 2.0 + metrics::TOP_BAR
         };
-        let elapsed = record.since.elapsed();
-        ctx.request_repaint_after(Duration::from_millis(1000 - u64::from(elapsed.subsec_millis())));
-        let text = format!("REC {}", crate::ui::views::duration_text(elapsed.as_secs_f64()));
         egui::Area::new(egui::Id::unique("recording"))
             .order(egui::Order::Foreground)
             .pivot(Align2::RIGHT_TOP)
             .fixed_pos(egui::pos2(screen.right() - metrics::GAP, top))
             .show(ctx, |ui| {
-                let galley = ui.painter().layout_no_wrap(text, typography::small_strong(), p.text);
-                let size = vec2(galley.size().x + 52.0, 30.0);
-                let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-                let fill = if resp.hovered() { p.glass_strong.to_opaque() } else { p.glass_strong };
-                ui.painter().rect_filled(r, egui::CornerRadius::same(15), fill);
-                ui.painter().circle_filled(egui::pos2(r.left() + 16.0, r.center().y), 5.0, p.danger);
-                ui.painter().galley(egui::pos2(r.left() + 28.0, r.center().y - galley.size().y / 2.0), galley, p.text);
-                let stop = Rect::from_center_size(egui::pos2(r.right() - 14.0, r.center().y), vec2(12.0, 12.0));
-                crate::ui::icons::paint(ui.painter(), stop, Icon::Stop, if resp.hovered() { p.text } else { p.dim });
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Stop recording (R)").clicked() {
-                    acts.push(Act::ToggleRecording);
-                }
+                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                    for (title, since, tip, stop) in badges {
+                        let elapsed = since.elapsed();
+                        ctx.request_repaint_after(Duration::from_millis(1000 - u64::from(elapsed.subsec_millis())));
+                        let text = format!("REC {title}{}", crate::ui::views::duration_text(elapsed.as_secs_f64()));
+                        let galley = widgets::ellipsize(ui, &text, typography::small_strong(), p.text, 280.0);
+                        let size = vec2(galley.size().x + 52.0, 30.0);
+                        let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+                        let fill = if resp.hovered() { p.glass_strong.to_opaque() } else { p.glass_strong };
+                        ui.painter().rect_filled(r, egui::CornerRadius::same(15), fill);
+                        ui.painter().circle_filled(egui::pos2(r.left() + 16.0, r.center().y), 5.0, p.danger);
+                        ui.painter().galley(egui::pos2(r.left() + 28.0, r.center().y - galley.size().y / 2.0), galley, p.text);
+                        let square = Rect::from_center_size(egui::pos2(r.right() - 14.0, r.center().y), vec2(12.0, 12.0));
+                        crate::ui::icons::paint(ui.painter(), square, Icon::Stop, if resp.hovered() { p.text } else { p.dim });
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip).clicked() {
+                            acts.push(stop);
+                        }
+                    }
+                });
             });
     }
 

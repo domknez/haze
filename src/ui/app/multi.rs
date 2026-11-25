@@ -79,10 +79,10 @@ impl App {
         if self.multi.order.len() >= MAX {
             return self.show_toast(&format!("Up to {MAX} channels at once"));
         }
-        let allowed = self.catalog.ready().and_then(|c| c.account.as_ref()?.max_connections).filter(|&m| m > 0);
-        if let Some(m) = allowed.filter(|&m| self.multi.order.len() >= m as usize) {
+        if let Some(m) = self.streams_to_watch().filter(|&m| self.multi.order.len() >= m) {
             let streams = if m == 1 { "one stream".to_string() } else { format!("{m} streams") };
-            return self.show_toast(&format!("Your provider allows {streams} at once"));
+            let besides = if self.taped.is_empty() { "" } else { " besides those recording" };
+            return self.show_toast(&format!("Your provider allows {streams} at once{besides}"));
         }
         let playing = Playing::Live { key: key.clone() };
         let Some(player) = self.new_player(ctx, &playing, None, Output::Local, 0.0, None) else {

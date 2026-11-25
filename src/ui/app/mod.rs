@@ -3,7 +3,8 @@
 //! keys, the pointer and remote controls in [`input`]; the mini player in [`mini`];
 //! keeping the channels and the guide fresh in [`refresh`]; the sleep timer in
 //! [`sleep`]; several channels at once in [`multi`]; reminders from the guide in
-//! [`remind`]; recording the channel that plays in [`record`].
+//! [`remind`]; recording the channel that plays in [`record`], and programmes from
+//! the guide in [`schedule`].
 
 mod act;
 mod input;
@@ -13,6 +14,7 @@ mod playback;
 mod record;
 mod refresh;
 mod remind;
+mod schedule;
 mod sleep;
 mod sources;
 
@@ -33,7 +35,7 @@ use super::views::add_source::SourceForm;
 use super::views::pin::{Outcome as PinOutcome, PinDialog};
 use crate::iptv::model::{Catalog, Channel, Guide, Programme};
 use crate::iptv::time;
-use crate::library::{self, Marks, Progress, Reminder, Reminders, Source};
+use crate::library::{self, Marks, Plan, Plans, Progress, Source};
 use crate::media::Status;
 use crate::output::Output;
 use crate::output::airplay::Discovery;
@@ -122,15 +124,23 @@ pub struct App {
     pub multi: multi::Multi,
     pub sleep: sleep::Sleep,
     /// Programmes to be reminded of.
-    pub reminders: Reminders,
+    pub reminders: Plans,
     /// Reminders whose time came, shown until answered or the programme ends.
-    pub reminding: Vec<Reminder>,
+    pub reminding: Vec<Plan>,
     /// The section of the settings shown last.
     settings_page: crate::ui::views::SettingsPage,
     /// The recording under way, if any.
     pub record: Option<record::Record>,
     /// The folder to record into, being asked for.
     folder_pick: Load<Option<std::path::PathBuf>>,
+    /// What it's asked for.
+    folder_for: record::FolderFor,
+    /// Programmes to be recorded, those being recorded among them.
+    pub recordings: Plans,
+    /// The programmes being recorded.
+    pub taped: Vec<schedule::Taped>,
+    /// Held while programmes are recorded, so the computer doesn't sleep.
+    awake_recording: Option<crate::awake::Awake>,
 }
 
 impl App {
@@ -151,11 +161,15 @@ impl App {
             guide_search: Default::default(),
             multi: multi::Multi::default(),
             sleep: sleep::Sleep::default(),
-            reminders: Reminders::load(time::now()),
+            reminders: Plans::reminders(time::now()),
             reminding: Vec::new(),
             settings_page: Default::default(),
             record: None,
             folder_pick: Load::Idle,
+            folder_for: record::FolderFor::default(),
+            recordings: Plans::recordings(time::now()),
+            taped: Vec::new(),
+            awake_recording: None,
             resume: prefs.channel.clone(),
             browse: Browse::new(prefs.tab.as_deref().and_then(Tab::from_key).unwrap_or(Tab::Live)),
             prefs,
@@ -239,6 +253,7 @@ impl App {
         self.sleep_when_due(ctx);
         self.remind_when_due(ctx);
         self.poll_recording();
+        self.record_when_due(ctx);
         for act in self.remotes.presses(self.prefs.volume) {
             self.apply(ctx, act);
         }
@@ -285,6 +300,9 @@ impl eframe::App for App {
         {
             player.stop().wait();
         }
+        // So are the programmes', which are recorded again if they're still on when
+        // haze is back.
+        self.taped.clear();
         self.updates.apply_on_exit();
     }
 

@@ -5,7 +5,7 @@
 use super::{App, Playing};
 use crate::iptv::model::Programme;
 use crate::iptv::time;
-use crate::library::Reminder;
+use crate::library::Plan;
 use eframe::egui::{self, UserAttentionType, ViewportCommand};
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ impl App {
         }
         let source = self.source_id();
         if self.reminders.toggle(&source, key, programme) {
-            let at = crate::ui::views::hhmm(programme.start - crate::library::REMIND_LEAD);
+            let at = crate::ui::views::hhmm(programme.start - crate::library::LEAD);
             self.show_toast(&format!("Reminder set: {} (at {at})", programme.title));
         } else {
             self.show_toast("Reminder removed");
@@ -31,7 +31,7 @@ impl App {
     pub(super) fn remind_when_due(&mut self, ctx: &egui::Context) {
         let now = time::now();
         self.reminding.retain(|r| r.stop > now);
-        let due = self.reminders.due(now);
+        let due = self.reminders.take_due(now);
         if !due.is_empty() {
             let source = self.source_id();
             let playing = match &self.session.playing {
@@ -39,7 +39,7 @@ impl App {
                 _ => None,
             };
             // What's on already needs no reminder.
-            let new: Vec<Reminder> = due.into_iter().filter(|r| !(r.source == source && playing == Some(r.channel.as_str()))).collect();
+            let new: Vec<Plan> = due.into_iter().filter(|r| !(r.source == source && playing == Some(r.channel.as_str()))).collect();
             if !new.is_empty() {
                 log_info!("reminder: {} programme(s) starting", new.len());
                 if !ctx.input(|i| i.focused) {
@@ -48,7 +48,7 @@ impl App {
                 self.reminding.extend(new);
             }
         }
-        if let Some(at) = self.reminders.next_at() {
+        if let Some(at) = self.reminders.next_at(now) {
             ctx.request_repaint_after(Duration::from_secs((at - now).clamp(1, LOOK) as u64));
         }
         if let Some(stop) = self.reminding.iter().map(|r| r.stop).min() {
@@ -82,7 +82,7 @@ impl App {
     }
 
     /// The name of the reminder's channel, when it's of the source in use.
-    pub fn reminder_channel(&self, r: &Reminder) -> Option<&str> {
+    pub fn reminder_channel(&self, r: &Plan) -> Option<&str> {
         (r.source == self.source_id()).then(|| self.channel(&r.channel)).flatten().map(|c| c.name.as_str())
     }
 }

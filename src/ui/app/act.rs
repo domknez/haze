@@ -18,6 +18,8 @@ pub enum Popup {
     Sleep,
     /// The reminders set, from the guide.
     Reminders,
+    /// The programmes to be recorded, and those being recorded.
+    Recordings,
     /// Which channels the guide shows.
     GuideChannels,
 }
@@ -45,6 +47,10 @@ pub enum Act {
     PlayCatchup(String, Programme),
     /// Be reminded of a programme still to come on a channel, or not any more.
     Remind(String, Programme),
+    /// Record a programme on now or still to come on a channel, or not any more.
+    Record(String, Programme),
+    /// Pick the folder recordings go into.
+    PickRecordFolder,
     /// Watch the programme of the reminder shown (true), or let it go.
     AnswerReminder(bool),
     GoLive,
@@ -135,6 +141,8 @@ impl App {
             Act::Solo(key) => self.solo(key),
             Act::PlayCatchup(key, programme) => self.play(ctx, Playing::Catchup { key, programme }),
             Act::Remind(key, programme) => self.toggle_reminder(&key, &programme),
+            Act::Record(key, programme) => self.toggle_scheduled(&key, &programme),
+            Act::PickRecordFolder => self.ask_for_folder(ctx, super::record::FolderFor::Recordings),
             Act::AnswerReminder(watch) => self.answer_reminder(ctx, watch),
             Act::GoLive => self.go_live(ctx),
             Act::TogglePause => self.set_paused(!self.session.paused()),

@@ -2,7 +2,8 @@
 //! [`video`] threads. Audio goes to an output (sound card or AirPlay speaker) as fast
 //! as it takes it and drives the [`clock`]; video waits for the clock, so the picture
 //! matches the sound wherever it is heard, even two seconds later on a speaker.
-//! What plays can be [`record`]ed as it is read.
+//! What plays can be [`record`]ed as it is read, and a channel can be recorded in
+//! the background on a connection of its own ([`tape`]).
 
 mod audio;
 mod clock;
@@ -12,6 +13,7 @@ mod hwaccel;
 mod manifest;
 mod record;
 pub mod subtitle;
+mod tape;
 mod video;
 
 use crate::output::Output;
@@ -22,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+pub use tape::Taping;
 
 /// What to play.
 #[derive(Clone, Debug, PartialEq)]

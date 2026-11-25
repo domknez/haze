@@ -61,7 +61,8 @@ Secret Service), never in the settings files.
   half a day back and a day ahead, to play a channel or a programme from the archive;
   **search the guide** (⌘F while it's open) for a programme by name on every channel;
   click a programme still to come for a **reminder**: a minute before it starts, a
-  notice offers to watch it (the bell in the guide lists those set)
+  notice offers to watch it (the bell in the guide lists those set); right-click one
+  on now or still to come to **record** it (see Recording)
 - **Catch-up:** watch a programme that already aired from the strip, or the one on now
   *from the start* — Xtream archives, and M3U `catchup` (`default`, `append`, `shift`,
   `flussonic`, with `catchup-source` templates)
@@ -92,7 +93,13 @@ Secret Service), never in the settings files.
   after it and the time, as it comes, nothing encoded again and no second connection
   to the provider. R, the square or the red *REC* badge in the corner stops it, and so
   does picking another channel; when the provider drops the stream, the recording
-  carries on in a new file once it's back. haze has to be running to record
+  carries on in a new file once it's back. **Programmes from the guide** (right-click
+  one on now or still to come, *Record*) are recorded in the background on a
+  connection of their own, whatever plays meanwhile, from a minute before they start
+  to two minutes after they end; when the provider allows no more streams at once,
+  watching stops for the recording. The dot in the guide lists them; the computer
+  doesn't sleep while one is recorded. Settings › Recording picks the folder. haze has
+  to be running to record
 - **Mini player** (P): the picture alone in a small window that stays above the
   others; drag it anywhere, P, Esc or a double-click bring the full window back
 - **Fill the window** (Z): the picture covers the window, its edges cut, instead of
@@ -184,9 +191,10 @@ listed in `.github/workflows/release.yml` makes it sign with a Developer ID and 
 ```
 src/
   iptv/      playlists (m3u), provider logins (xtream), guides (xmltv), HTTP, time
-  library/   sources, catch-up URLs, favourites, recents, progress and reminders
+  library/   sources, catch-up URLs, favourites, recents, progress, reminders and
+             recordings to be made
   media/     playback: demux → audio (drives the clock) and video (waits for it),
-             and recording what's read
+             recording what's read, and recording in the background
   output/    local sound card and AirPlay 1/2
   ui/        egui: the stage, glass panels, menus, the add-source dialog, GPU video
 ```
@@ -197,7 +205,7 @@ src/
   and shows it when the clock reaches it.
 - **Settings** live in `~/Library/Application Support/haze/` (macOS),
   `%APPDATA%\haze\` (Windows) or `~/.config/haze/` (Linux): `settings.conf`,
-  `sources.json`, `marks.json`, `progress.json`, `reminders.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
+  `sources.json`, `marks.json`, `progress.json`, `reminders.json`, `recordings.json`. The log is `~/Library/Logs/haze/haze.log` on macOS.
 - `haze probe <url> [seconds] [from]` plays a stream (a recording from `from` seconds in) without the window and reports what it is
   and how it plays, with its subtitles if it has any (`HAZE_LOG=trace` adds ffmpeg's
   own messages);

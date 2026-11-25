@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Record from the guide: right-click a programme on now or still to come, *Record*,
+  and it's recorded in the background, on a connection of its own, from a minute
+  before it starts to two minutes after it ends, whatever plays meanwhile (watching
+  stops if the provider allows no more streams); the dot in the guide lists the
+  recordings to come, the *REC* badge stops one under way, and the computer doesn't
+  sleep while one is recorded. Settings › Recording picks the folder
+
 ## 0.1.12 (2026-11-25)
 
 - Recording: R, or the dot by the channel buttons, asks for a folder and records the

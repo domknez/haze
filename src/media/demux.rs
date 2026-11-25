@@ -28,7 +28,7 @@ pub enum Packet {
     End(u64),
 }
 
-fn init() {
+pub(super) fn init() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         if let Err(e) = ffmpeg::init() {
@@ -123,16 +123,10 @@ fn play(shared: &Arc<Shared>, request: &super::Request, settings: audio::Setting
 }
 
 impl<'a> Demuxer<'a> {
-    /// Open the stream (the best quality of an HLS playlist, a DASH manifest from
-    /// where it was redirected) and pick what plays; None when stopped meanwhile.
+    /// Open the stream and pick what plays; None when stopped meanwhile.
     fn open(shared: &'a Arc<Shared>, request: &super::Request) -> Result<Option<Self>, Error> {
-        let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
-        let url = super::manifest::location(&request.url, user_agent, request.referrer.as_deref());
-        if shared.stopped() {
-            return Ok(None);
-        }
         let stop = shared.clone();
-        let mut input = ffmpeg::format::input_with_interrupt_and_dictionary(&url, move || stop.stopped(), options(request))?;
+        let Some(mut input) = open_input(request, move || stop.stopped())? else { return Ok(None) };
         let video_index = best_video(&input);
         let audio_index = best_audio(&mut input, video_index);
         if video_index.is_none() && audio_index.is_none() {
@@ -406,6 +400,21 @@ impl<'a> Demuxer<'a> {
     }
 }
 
+/// Open the stream of `request` (the best quality of an HLS playlist, a DASH manifest
+/// from where it was redirected); None when `stop` says so before it's open. `stop`
+/// is asked again while waiting on the network, and gives up the connection.
+pub(super) fn open_input(
+    request: &super::Request,
+    stop: impl Fn() -> bool + Send + 'static,
+) -> Result<Option<ffmpeg::format::context::Input>, Error> {
+    let user_agent = request.user_agent.as_deref().unwrap_or(crate::iptv::http::USER_AGENT);
+    let url = super::manifest::location(&request.url, user_agent, request.referrer.as_deref());
+    if stop() {
+        return Ok(None);
+    }
+    Ok(Some(ffmpeg::format::input_with_interrupt_and_dictionary(&url, stop, options(request))?))
+}
+
 fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>, Error> {
     std::thread::Builder::new().name(name.into()).spawn(f).map_err(|e| Error::Start(e.to_string()))
 }
@@ -427,7 +436,7 @@ fn seek(input: &mut ffmpeg::format::context::Input, t: f64, shared: &Shared, dec
 }
 
 /// The picture to show: of an HLS playlist's qualities, the best one.
-fn best_video(input: &ffmpeg::format::context::Input) -> Option<usize> {
+pub(super) fn best_video(input: &ffmpeg::format::context::Input) -> Option<usize> {
     let bitrate = |s: &ffmpeg::Stream| s.metadata().get("variant_bitrate").and_then(|b| b.parse::<u64>().ok()).unwrap_or(0);
     input
         .streams()
@@ -457,7 +466,7 @@ fn best_audio(input: &mut ffmpeg::format::context::Input, video: Option<usize>) 
     (i >= 0).then_some(i as usize)
 }
 
-fn set_discard(input: &mut ffmpeg::format::context::Input, index: usize, discard: bool) {
+pub(super) fn set_discard(input: &mut ffmpeg::format::context::Input, index: usize, discard: bool) {
     // SAFETY: index is below nb_streams; only the discard field is written.
     unsafe {
         let ctx = input.as_mut_ptr();

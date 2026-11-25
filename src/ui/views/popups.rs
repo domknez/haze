@@ -1,6 +1,7 @@
 //! Menus that open from a button: where the sound plays, the sources, the channel
-//! groups, the audio track, the sleep timer and reminders.
+//! groups, the audio track, the sleep timer, reminders and recordings.
 
+use crate::library::Plan;
 use crate::output::Output;
 use crate::ui::app::{Act, App, Popup, Timer, sleep_left};
 use crate::ui::icons::{self, Icon};
@@ -47,6 +48,7 @@ impl App {
                             Popup::AudioTracks => self.tracks_menu(ui, acts),
                             Popup::Sleep => self.sleep_menu(ui, acts),
                             Popup::Reminders => self.reminders_menu(ui, acts),
+                            Popup::Recordings => self.recordings_menu(ui, acts),
                             Popup::GuideChannels => {}
                         });
                 });
@@ -251,46 +253,83 @@ impl App {
     }
 
     fn reminders_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        let p = colors();
         heading(ui, "Reminders");
         let source = self.source_id();
-        let now = crate::iptv::time::now();
-        let mut any = false;
-        for (n, r) in self.reminders.of(&source).enumerate() {
-            any = true;
-            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
-            if resp.hovered() {
-                ui.painter().rect_filled(row, CornerRadius::same(10), p.hl);
-            }
-            let ic = Rect::from_center_size(pos2(row.left() + 20.0, row.center().y), vec2(26.0, 26.0));
-            ui.painter().rect_filled(ic, CornerRadius::same(8), p.hl);
-            icons::paint(ui.painter(), ic.shrink(6.0), Icon::Bell, p.dim);
-            let x = ic.right() + 10.0;
-            let w = row.right() - x - 36.0;
-            let title = widgets::ellipsize(ui, &r.title, typography::small_strong(), p.text, w);
-            ui.painter().galley(pos2(x, row.top() + 6.0), title, p.text);
-            let channel = self.channel(&r.channel).map_or("", |c| c.name.as_str());
-            let when = format!("{} · {} {}", channel, super::guide::day(r.start, now), crate::ui::views::hhmm(r.start));
-            let sub = widgets::ellipsize(ui, when.trim_start_matches(" · "), typography::secondary(), p.dim, w);
-            ui.painter().galley(pos2(x, row.top() + 24.0), sub, p.dim);
-            let remove = Rect::from_center_size(pos2(row.right() - 16.0, row.center().y), vec2(24.0, 24.0));
-            let remove_resp = ui.interact(remove, ui.scope_id().with(("remove-reminder", n)), Sense::click()).on_hover_text("Remove");
-            if resp.hovered() || remove_resp.hovered() {
-                icons::paint(ui.painter(), remove.shrink(5.0), Icon::Trash, if remove_resp.hovered() { p.danger } else { p.dim });
-            }
-            if remove_resp.clicked() {
-                let programme = crate::iptv::model::Programme { start: r.start, stop: r.stop, title: r.title.clone(), desc: String::new() };
-                acts.push(Act::Remind(r.channel.clone(), programme));
+        let plans: Vec<Plan> = self.reminders.of(&source).cloned().collect();
+        for (n, plan) in plans.iter().enumerate() {
+            if self.plan_row(ui, plan, Icon::Bell, None, n) {
+                acts.push(Act::Remind(plan.channel.clone(), plan.programme()));
             }
         }
-        if !any {
-            ui.label(
-                egui::RichText::new("Click a programme still to come in the guide, and you'll be reminded a minute before it starts.")
-                    .font(typography::secondary())
-                    .color(p.faint),
-            );
+        if plans.is_empty() {
+            hint(ui, "Click a programme still to come in the guide, and you'll be reminded a minute before it starts.");
         }
     }
+
+    fn recordings_menu(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        heading(ui, "Recordings");
+        let source = self.source_id();
+        let plans: Vec<Plan> = self.recordings.of(&source).cloned().collect();
+        for (n, plan) in plans.iter().enumerate() {
+            let since = self.taped.iter().find(|t| t.plan == *plan).map(|t| t.since);
+            if self.plan_row(ui, plan, Icon::Record, since, n) {
+                acts.push(Act::Record(plan.channel.clone(), plan.programme()));
+            }
+        }
+        if plans.is_empty() {
+            hint(ui, "Right-click a programme on now or still to come in the guide to record it, while haze runs.");
+        } else {
+            let folder = self.record_folder().map(|f| f.display().to_string()).unwrap_or_default();
+            ui.add_space(4.0);
+            hint(ui, &format!("Into {folder}"));
+        }
+    }
+
+    /// A programme planned for, `since` when it's being recorded; true when the
+    /// viewer takes the plan back.
+    fn plan_row(&self, ui: &mut egui::Ui, plan: &Plan, icon: Icon, since: Option<std::time::Instant>, n: usize) -> bool {
+        let p = colors();
+        let now = crate::iptv::time::now();
+        let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+        if resp.hovered() {
+            ui.painter().rect_filled(row, CornerRadius::same(10), p.hl);
+        }
+        let ic = Rect::from_center_size(pos2(row.left() + 20.0, row.center().y), vec2(26.0, 26.0));
+        ui.painter().rect_filled(ic, CornerRadius::same(8), p.hl);
+        icons::paint(ui.painter(), ic.shrink(6.0), icon, if since.is_some() { p.danger } else { p.dim });
+        let x = ic.right() + 10.0;
+        let w = row.right() - x - 36.0;
+        let title = widgets::ellipsize(ui, &plan.title, typography::small_strong(), p.text, w);
+        ui.painter().galley(pos2(x, row.top() + 6.0), title, p.text);
+        let channel = self.channel(&plan.channel).map_or("", |c| c.name.as_str());
+        let when = match since {
+            Some(since) => format!("{channel} · recording, {}", crate::ui::views::duration_text(since.elapsed().as_secs_f64())),
+            None => format!("{channel} · {} {}", super::guide::day(plan.start, now), crate::ui::views::hhmm(plan.start)),
+        };
+        let sub = widgets::ellipsize(
+            ui,
+            when.trim_start_matches(" · "),
+            typography::secondary(),
+            if since.is_some() { p.danger } else { p.dim },
+            w,
+        );
+        ui.painter().galley(pos2(x, row.top() + 24.0), sub, p.dim);
+        let (take_back, tip) = if since.is_some() { (Icon::Stop, "Stop recording") } else { (Icon::Trash, "Remove") };
+        let remove = Rect::from_center_size(pos2(row.right() - 16.0, row.center().y), vec2(24.0, 24.0));
+        let remove_resp = ui.interact(remove, ui.scope_id().with(("take-back", n)), Sense::click()).on_hover_text(tip);
+        if resp.hovered() || remove_resp.hovered() || since.is_some() {
+            icons::paint(ui.painter(), remove.shrink(5.0), take_back, if remove_resp.hovered() { p.danger } else { p.dim });
+        }
+        if since.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        remove_resp.clicked()
+    }
+}
+
+/// A line of help where a list is empty.
+fn hint(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).font(typography::secondary()).color(colors().faint));
 }
 
 impl App {

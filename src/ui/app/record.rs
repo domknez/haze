@@ -1,7 +1,9 @@
 //! Recording the live channel that plays: a folder is picked (the one used last is
 //! offered first), and the channel goes into a file there until the recording is
 //! stopped, another channel is picked, or the app closes. When the provider drops
-//! the stream, the recording carries on in a new file once it's back.
+//! the stream, the recording carries on in a new file once it's back. The folder
+//! picked is where recordings go from then on (also those from the guide); the
+//! settings can pick another.
 
 use super::{App, Playing};
 use crate::iptv::time;
@@ -10,6 +12,16 @@ use crate::ui::load::Load;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+/// What a folder is being asked for.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum FolderFor {
+    /// To record the channel that plays into.
+    #[default]
+    RecordingNow,
+    /// For recordings from now on (from the settings).
+    Recordings,
+}
 
 /// A recording under way.
 pub struct Record {
@@ -30,10 +42,24 @@ impl App {
             self.stop_recording();
         } else if !self.can_record() {
             self.show_toast("Only a live channel can be recorded");
-        } else if !self.folder_pick.is_loading() {
-            let start = self.prefs.record_folder.as_deref().map(PathBuf::from).filter(|f| f.is_dir()).or_else(default_folder);
-            self.folder_pick = Load::start(ctx, move || Ok(pick_folder(start)));
+        } else {
+            self.ask_for_folder(ctx, FolderFor::RecordingNow);
         }
+    }
+
+    /// Ask for the folder to record into, for `purpose`.
+    pub(super) fn ask_for_folder(&mut self, ctx: &egui::Context, purpose: FolderFor) {
+        if !self.folder_pick.is_loading() {
+            let start = self.record_folder();
+            self.folder_pick = Load::start(ctx, move || Ok(pick_folder(start)));
+            self.folder_for = purpose;
+        }
+    }
+
+    /// The folder recordings go into: the one picked last, or the system's folder for
+    /// videos.
+    pub fn record_folder(&self) -> Option<PathBuf> {
+        self.prefs.record_folder.as_deref().map(PathBuf::from).filter(|f| f.is_dir()).or_else(default_folder)
     }
 
     /// Whether what plays can be recorded: a live channel, watched alone.
@@ -46,7 +72,11 @@ impl App {
     pub(super) fn poll_recording(&mut self) {
         if self.folder_pick.poll() {
             if let Load::Ready(Some(folder)) = std::mem::take(&mut self.folder_pick) {
-                self.start_recording(folder);
+                self.prefs.update(|p| p.record_folder = Some(folder.to_string_lossy().into_owned()));
+                match self.folder_for {
+                    FolderFor::RecordingNow => self.start_recording(folder),
+                    FolderFor::Recordings => self.show_toast(&format!("Recordings go into {}", file_name(&folder))),
+                }
             }
             self.folder_pick = Load::Idle;
         }
@@ -69,7 +99,6 @@ impl App {
             return;
         }
         let channel = self.channel(&key).map_or_else(|| "Recording".to_string(), |c| c.name.clone());
-        self.prefs.update(|p| p.record_folder = Some(folder.to_string_lossy().into_owned()));
         log_info!("recording a channel");
         self.show_toast(&format!("Recording {channel} (R stops it)"));
         self.record = Some(Record { key, channel, folder, since: Instant::now(), files: Vec::new() });
@@ -119,7 +148,7 @@ fn next_step(key: &str, playing: Option<&Playing>, multi: bool, state: Option<Re
 }
 
 /// What was saved, for the notice when a recording stops.
-fn saved_text(files: &[&PathBuf], folder: &Path) -> String {
+pub(super) fn saved_text(files: &[&PathBuf], folder: &Path) -> String {
     match files {
         [] => "Recording stopped before anything was saved".into(),
         [file] => format!("Recording saved: {}", file_name(file)),
@@ -146,7 +175,7 @@ fn default_folder() -> Option<PathBuf> {
 
 /// A file in `folder` not there yet, named after the channel and the local time:
 /// `HRT 1 2026-11-25 20.15.mkv`.
-fn new_file(folder: &Path, channel: &str, now: i64) -> PathBuf {
+pub(super) fn new_file(folder: &Path, channel: &str, now: i64) -> PathBuf {
     let c = time::civil(now + crate::ui::views::local_offset(now));
     let stem = format!("{} {}-{:02}-{:02} {:02}.{:02}", safe_name(channel), c.year, c.month, c.day, c.hour, c.minute);
     (1..)
@@ -163,7 +192,7 @@ fn safe_name(name: &str) -> String {
     if safe.is_empty() { "Recording".into() } else { safe.into() }
 }
 
-fn file_name(path: &Path) -> String {
+pub(super) fn file_name(path: &Path) -> String {
     path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 

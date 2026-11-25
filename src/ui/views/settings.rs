@@ -21,6 +21,7 @@ pub enum Page {
     #[default]
     Appearance,
     Picture,
+    Recording,
     Sources,
     Groups,
     Keys,
@@ -28,12 +29,13 @@ pub enum Page {
 }
 
 impl Page {
-    const ALL: [Page; 6] = [Page::Appearance, Page::Picture, Page::Sources, Page::Groups, Page::Keys, Page::Updates];
+    const ALL: [Page; 7] = [Page::Appearance, Page::Picture, Page::Recording, Page::Sources, Page::Groups, Page::Keys, Page::Updates];
 
     fn label(self) -> &'static str {
         match self {
             Page::Appearance => "Appearance",
             Page::Picture => "Picture",
+            Page::Recording => "Recording",
             Page::Sources => "Sources",
             Page::Groups => "Hidden groups",
             Page::Keys => "Keyboard",
@@ -84,6 +86,7 @@ impl App {
                             match page {
                                 Page::Appearance => self.appearance_page(ui, acts),
                                 Page::Picture => self.picture_page(ui, acts),
+                                Page::Recording => self.recording_page(ui, acts),
                                 Page::Sources => self.sources_page(ui, acts),
                                 Page::Groups => self.groups_page(ui, acts),
                                 Page::Keys => keys_page(ui),
@@ -131,6 +134,19 @@ impl App {
                 "For {}, kept for it. The picture waits for the speaker: lips move before the sound? Delay the picture more ( ] ); after it, less ( [ ).",
                 self.output.name()
             ),
+        );
+    }
+
+    fn recording_page(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+        section(ui, "Folder");
+        let folder = self.record_folder().map_or_else(|| "None yet".to_string(), |f| f.display().to_string());
+        if button_row(ui, &folder, "Where recordings go", "Change…", false) {
+            acts.push(Act::PickRecordFolder);
+        }
+        note(
+            ui,
+            "R records the channel that plays. Right-click a programme in the guide to record it, \
+             in the background on a connection of its own, while haze runs.",
         );
     }
 
