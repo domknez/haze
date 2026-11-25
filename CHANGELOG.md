@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.11 (2026-11-25)
 
 - Free channels to start with: *Try free channels* on the first screen, or *Free TV*
   in Add source, adds one of the lists the Free-TV project keeps of channels their
